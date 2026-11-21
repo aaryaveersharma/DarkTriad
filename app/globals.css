@@ -37,13 +37,18 @@
   letter-spacing: -0.045em;
 }
 
-/* Exclusively for the curved camera-opener box ("Get / your / rating") */
+/* Pomelli-inspired italic geometric display style */
 .pomelli-display {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-style: italic;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.055em;
-  line-height: 0.9;
+  line-height: 0.92;
+}
+
+.pomelli-slant {
+  display: inline-block;
+  transform: skewX(-4deg);
 }
 
 /* Crisp cool-grey background with subtle architectural dot/scanline texture */

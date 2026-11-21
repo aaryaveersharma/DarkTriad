@@ -2,10 +2,7 @@
 
 import { ArrowUpRight } from 'lucide-react';
 import { motion } from 'motion/react';
-import {
-  FaceAvatarsCluster,
-  TriadCrownCrest,
-} from './TriadEmblems';
+import { FaceAvatarsCluster } from './TriadEmblems';
 
 interface HeroSectionProps {
   onGetRatingsClick: () => void;
@@ -15,105 +12,44 @@ export function HeroSection({ onGetRatingsClick }: HeroSectionProps) {
   return (
     <section
       id="top"
-      className="relative mx-auto flex max-w-5xl flex-col items-center px-4 pt-12 pb-10 text-center sm:px-6 sm:pt-16 sm:pb-14"
+      className="relative mx-auto flex max-w-5xl flex-col items-center px-4 pt-4 pb-8 text-center sm:px-6 sm:pt-6 sm:pb-11"
     >
-      {/* Top Pixel Crest (Design Society symmetry) */}
-      <motion.div
+      {/* Main Heading: crisp uppercase slanted Pomelli style, no blur */}
+      <motion.h1
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        className="pomelli-display pomelli-slant uppercase text-[clamp(3.2rem,9vw,6.25rem)] leading-[0.94] text-[#0a0a0a]"
       >
-        <TriadCrownCrest className="h-14 w-28 sm:h-16 sm:w-32 text-[#0a0a0a]" />
-      </motion.div>
-
-      {/* Bracketed Criteria Kicker */}
-      <motion.p
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.06, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-4 text-[11px] sm:text-xs font-medium tracking-[0.12em] text-[#0a0a0a]/80"
-      >
-        [CRITERIA : SYMMETRY, JAWLINE &amp; PRESENCE]
-      </motion.p>
-
-      {/* Main Heading: "Dark Triad" in Odysser style with blended top-edge blur */}
-      <motion.h1
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-5 font-odysser text-[clamp(3.35rem,9vw,6.5rem)] leading-[0.94] text-[#0a0a0a]"
-      >
-        <span className="relative inline-block">
-          <span className="odysser-blur-base block">Dark Triad</span>
-          <span
-            aria-hidden="true"
-            className="odysser-blur-mid pointer-events-none absolute inset-0 block select-none"
-          >
-            Dark Triad
-          </span>
-          <span
-            aria-hidden="true"
-            className="odysser-blur-veil pointer-events-none absolute inset-0 block select-none"
-          >
-            Dark Triad
-          </span>
-        </span>
+        DARK TRIAD
       </motion.h1>
 
-      {/* Sub-headline in attached DM Sans tight-tracked editorial styling */}
+      {/* Sub-headline in DM Sans without inline male/female cutouts */}
       <motion.p
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-5 max-w-2xl text-balance text-[clamp(1.5rem,3.3vw,2.65rem)] font-medium leading-[1.16] tracking-[-0.035em] text-[#0a0a0a]"
+        transition={{ duration: 0.48, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
+        className="mt-4 max-w-2xl text-balance text-[clamp(1.5rem,3.3vw,2.65rem)] font-medium leading-[1.16] tracking-[-0.035em] text-[#0a0a0a]"
       >
-        Helping Indians{' '}
-        <span className="inline-flex align-middle mx-1">
-          <img
-            src="/images/indian_face_male_one_1795203435045.jpg"
-            alt="Male facial structure study"
-            referrerPolicy="no-referrer"
-            className="h-7 w-10 sm:h-8 sm:w-12 rounded-md border border-[#0a0a0a]/25 object-cover object-top"
-          />
-        </span>{' '}
-        sharpen facial harmony,{' '}
-        <span className="inline-flex align-middle mx-1">
-          <img
-            src="/images/indian_face_female_two_1795203434734.jpg"
-            alt="Female facial symmetry study"
-            referrerPolicy="no-referrer"
-            className="h-7 w-10 sm:h-8 sm:w-12 rounded-md border border-[#0a0a0a]/25 object-cover object-top"
-          />
-        </span>{' '}
-        jawline balance, and presence
+        Helping Indians sharpen facial harmony, jawline balance, and presence
       </motion.p>
 
       {/* Bracketed Sub-line */}
       <motion.p
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.24, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-5 text-[11px] sm:text-xs font-medium tracking-[0.12em] text-[#0a0a0a]/75"
+        transition={{ duration: 0.45, delay: 0.14, ease: [0.16, 1, 0.3, 1] }}
+        className="mt-4 text-[11px] sm:text-xs font-medium tracking-[0.12em] text-[#0a0a0a]/75"
       >
         [LIVE OPTICAL SCAN · SOUTH ASIAN CALIBRATION]
       </motion.p>
 
-      {/* Mirrored Bottom Pixel Crest */}
+      {/* Primary CTA Button */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.28, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-4"
-      >
-        <TriadCrownCrest className="h-12 w-24 sm:h-14 sm:w-28 rotate-180 text-[#0a0a0a]" />
-      </motion.div>
-
-      {/* Primary CTA Button: Attractive faces in circles + "Get your ratings" + Image 4 tactile dark pill */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.32, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-8"
+        transition={{ duration: 0.45, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="mt-6"
       >
         <button
           type="button"

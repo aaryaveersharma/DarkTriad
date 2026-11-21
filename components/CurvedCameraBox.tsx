@@ -804,66 +804,69 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
               )}
             </div>
 
-            {/* Required tip directly below the camera frame */}
-            <p className="text-center text-xs sm:text-sm font-medium text-[#0a0a0a]">
-              {captureStep === 'front'
-                ? 'Tip: Keep at eye level in front of good lighting and fit your face inside the oval.'
-                : 'Tip: Keep at eye level in front of good lighting — turn sideways showing your jawline and neck for posture ratings.'}
-            </p>
+            {/* Tip + Centered Primary Action + Balanced Secondary Row */}
+            <div className="flex flex-col items-center gap-5 pt-1">
+              <p className="text-center text-xs sm:text-sm font-medium leading-snug text-[#0a0a0a]">
+                {captureStep === 'front'
+                  ? 'Tip: Keep at eye level in front of good lighting and fit your face inside the oval.'
+                  : 'Tip: Keep at eye level in front of good lighting — turn sideways showing your jawline and neck for posture ratings.'}
+              </p>
 
-            {/* Capture & Native Label-Backed Upload Actions */}
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {liveFeedActive ? (
-                <button
-                  type="button"
-                  onClick={captureFrameFromVideo}
-                  className="tactile-cta inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>
-                    {captureStep === 'front'
-                      ? 'Capture Front Face'
-                      : 'Capture Side & Analyze'}
-                  </span>
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
-              ) : (
+              <div className="flex justify-center">
+                {liveFeedActive ? (
+                  <button
+                    type="button"
+                    onClick={captureFrameFromVideo}
+                    className="tactile-cta inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>
+                      {captureStep === 'front'
+                        ? 'Capture Front Face'
+                        : 'Capture Side & Analyze'}
+                    </span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <label
+                    htmlFor={nativeCameraInputId}
+                    className="tactile-cta cursor-pointer inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>
+                      {captureStep === 'front'
+                        ? 'Take Front Selfie'
+                        : 'Take Side & Neck Selfie'}
+                    </span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </label>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3">
                 <label
-                  htmlFor={nativeCameraInputId}
-                  className="tactile-cta cursor-pointer inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+                  htmlFor={galleryInputId}
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-5 py-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors whitespace-nowrap"
                 >
-                  <Camera className="h-4 w-4" />
+                  <Upload className="h-3.5 w-3.5" />
                   <span>
                     {captureStep === 'front'
-                      ? 'Take Front Selfie'
-                      : 'Take Side & Neck Selfie'}
+                      ? 'Upload Front Photo'
+                      : 'Upload Side Profile'}
                   </span>
-                  <ArrowUpRight className="h-4 w-4" />
                 </label>
-              )}
 
-              <label
-                htmlFor={galleryInputId}
-                className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-5 py-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors whitespace-nowrap"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                <span>
-                  {captureStep === 'front'
-                    ? 'Upload Front Photo'
-                    : 'Upload Side Profile'}
-                </span>
-              </label>
-
-              {!liveFeedActive && (
-                <button
-                  type="button"
-                  onClick={() => void openCamera(captureStep)}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2.5 text-xs font-medium text-[#3f3f3c] hover:text-[#0a0a0a] underline underline-offset-4"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Retry Live Camera</span>
-                </button>
-              )}
+                {!liveFeedActive && (
+                  <button
+                    type="button"
+                    onClick={() => void openCamera(captureStep)}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2.5 text-xs font-medium text-[#3f3f3c] hover:text-[#0a0a0a] underline underline-offset-4"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Retry Live Camera</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
