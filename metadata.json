@@ -1,0 +1,6 @@
+{
+  "name": "Dark Triad",
+  "description": "Precision facial harmony analysis and looksmaxxing protocol built for Indians.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+:root {
+  --bg-canvas: #dcdcd9;
+  --surface-elevated: #e8e8e5;
+  --surface-card: #e3e3e0;
+  --surface-dark: #141414;
+  --ink-primary: #0a0a0a;
+  --ink-secondary: #3f3f3c;
+  --ink-muted: #585854;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+}
+
+.font-pixel,
+.font-mono {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-odysser {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+/* Exclusively for the curved camera-opener box ("Get / your / rating") */
+.pomelli-display {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  line-height: 0.9;
+}
+
+/* Crisp cool-grey background with subtle architectural dot/scanline texture */
+.scanline-bg {
+  background-color: var(--bg-canvas);
+  background-image:
+    radial-gradient(rgba(10, 10, 10, 0.065) 1px, transparent 1px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(10, 10, 10, 0.022) 3px,
+      rgba(10, 10, 10, 0.022) 4px
+    );
+  background-size: 24px 24px, 100% 4px;
+}
+
+/* Seamless 3-layer optical top-edge blur blended into crisp lower text */
+.odysser-blur-base {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.14) 24%,
+    rgba(0, 0, 0, 0.68) 48%,
+    rgba(0, 0, 0, 1) 70%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.14) 24%,
+    rgba(0, 0, 0, 0.68) 48%,
+    rgba(0, 0, 0, 1) 70%
+  );
+}
+
+.odysser-blur-mid {
+  filter: blur(2px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.72) 28%,
+    rgba(0, 0, 0, 0.34) 52%,
+    transparent 72%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.72) 28%,
+    rgba(0, 0, 0, 0.34) 52%,
+    transparent 72%
+  );
+}
+
+.odysser-blur-veil {
+  filter: blur(5px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.68) 0%,
+    rgba(0, 0, 0, 0.34) 24%,
+    transparent 48%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.68) 0%,
+    rgba(0, 0, 0, 0.34) 24%,
+    transparent 48%
+  );
+}
+
+/* Tactile dark pill button inspired by the "Get started" reference */
+.tactile-cta {
+  background: linear-gradient(180deg, #1f1f1f 0%, #0d0d0d 100%);
+  color: #f3f3f1;
+  box-shadow:
+    0 0 0 5px rgba(10, 10, 10, 0.09),
+    0 12px 28px -8px rgba(10, 10, 10, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tactile-cta:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 7px rgba(10, 10, 10, 0.13),
+    0 16px 32px -8px rgba(10, 10, 10, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.tactile-cta:active {
+  transform: translateY(0px) scale(0.99);
+}
+
+.glass-nav {
+  background: rgba(232, 232, 229, 0.76);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(10, 10, 10, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .tactile-cta,
+  .tactile-cta:hover {
+    transition: none;
+    transform: none;
+  }
+}
