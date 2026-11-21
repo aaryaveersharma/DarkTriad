@@ -66,6 +66,14 @@
   background-size: 24px 24px, 100% 4px;
 }
 
+/* Dark obsidian Stitch-inspired background for dashboard & inner workspace */
+.stitch-dark-bg {
+  background-color: #121213;
+  color: #f4f4f5;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.065) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 /* Seamless 3-layer optical top-edge blur blended into crisp lower text */
 .odysser-blur-base {
   -webkit-mask-image: linear-gradient(

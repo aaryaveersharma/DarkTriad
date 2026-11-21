@@ -1,12 +1,13 @@
 'use client';
 
-import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, LayoutDashboard } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useRef, useState } from 'react';
 import { FaceAvatarsCluster } from './TriadEmblems';
 
 interface HeroSectionProps {
   onGetRatingsClick: () => void;
+  onDashboardClick: () => void;
 }
 
 const BEFORE_IMAGE =
@@ -14,7 +15,10 @@ const BEFORE_IMAGE =
 const AFTER_IMAGE =
   '/assets/aistudio/file_000000003f4c8208a0a21b06553c34e0_8e8752ec.png';
 
-export function HeroSection({ onGetRatingsClick }: HeroSectionProps) {
+export function HeroSection({
+  onGetRatingsClick,
+  onDashboardClick,
+}: HeroSectionProps) {
   const [sliderPos, setSliderPos] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -201,12 +205,12 @@ export function HeroSection({ onGetRatingsClick }: HeroSectionProps) {
         </div>
       </motion.div>
 
-      {/* Primary CTA Button */}
+      {/* Primary CTA Button + Secondary DASHBOARD Button */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-7"
+        className="mt-7 flex flex-col items-center gap-3"
       >
         <button
           type="button"
@@ -220,6 +224,15 @@ export function HeroSection({ onGetRatingsClick }: HeroSectionProps) {
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/12 text-[#f3f3f1] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
             <ArrowUpRight className="h-4 w-4" />
           </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onDashboardClick}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#0a0a0a] bg-white px-5 py-2 text-xs font-semibold tracking-[0.08em] text-[#0a0a0a] shadow-sm transition-colors hover:bg-[#f3f3f1] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
+        >
+          <LayoutDashboard className="h-3.5 w-3.5" />
+          <span>DASHBOARD</span>
         </button>
       </motion.div>
     </section>

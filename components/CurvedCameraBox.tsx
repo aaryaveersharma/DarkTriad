@@ -1,11 +1,11 @@
 'use client';
 
 import {
+  AlertCircle,
   ArrowUpRight,
   Camera,
   Check,
-  Eye,
-  EyeOff,
+  CheckCircle2,
   Loader2,
   RefreshCw,
   Upload,
@@ -13,103 +13,50 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { PSLAnalysisResult, StoredPhoto, UserProfile } from '@/lib/types';
 import { FaceAvatarsCluster } from './TriadEmblems';
+import {
+  FrontMeasurementOverlay,
+  SideMeasurementOverlay,
+} from './app/FacialMeasurementOverlay';
 
-interface Point2D {
-  x: number;
-  y: number;
-}
-
-interface FrontLandmarks {
-  hairlineTop: Point2D;
-  browMid: Point2D;
-  noseBase: Point2D;
-  chinBottom: Point2D;
-  leftEyeOuter: Point2D;
-  leftPupil: Point2D;
-  rightPupil: Point2D;
-  rightEyeOuter: Point2D;
-  cheekLeft: Point2D;
-  cheekRight: Point2D;
-  mouthLeft: Point2D;
-  mouthRight: Point2D;
-  jawLeft: Point2D;
-  jawRight: Point2D;
-}
-
-interface SideLandmarks {
-  earTragus: Point2D;
-  gonialCorner: Point2D;
-  chinTip: Point2D;
-  neckBase: Point2D;
-}
-
-interface Proportions {
-  upperThirdPct: number;
-  middleThirdPct: number;
-  lowerThirdPct: number;
-  eyeToFaceRatio: string;
-  lipToNoseRatio: string;
-  gonialAngleEstimate: string;
-}
-
-interface SubScore {
-  label: string;
-  score: number;
-  observation: string;
-}
-
-interface ProtocolStep {
-  area: string;
-  action: string;
-  impact: string;
-}
-
-interface PostureRating {
-  score: number;
-  neckAlignment: string;
-  observation: string;
-}
-
-interface AnalysisResult {
-  faceDetected: boolean;
-  overallRating: number;
-  pslTier: string;
-  faceShape: string;
-  proportions: Proportions;
-  frontLandmarks: FrontLandmarks;
-  sideLandmarks: SideLandmarks;
-  postureRating: PostureRating;
-  summary: string;
-  subScores: SubScore[];
-  protocolSteps: ProtocolStep[];
-}
-
-interface CapturedPhoto {
-  dataUrl: string;
-  width: number;
-  height: number;
-}
-
-type BoxMode = 'idle' | 'requesting' | 'camera' | 'analyzing' | 'result' | 'error';
-type CaptureStep = 'front' | 'side';
+type BoxMode = 'idle' | 'requesting' | 'camera' | 'analyzing' | 'error';
+type CaptureSlot = 'front' | 'side';
 
 interface CurvedCameraBoxProps {
   externalTriggerCount: number;
+  profile?: UserProfile | null;
+  previousAnalysisSummary?: string | null;
+  isUpdatingSelfie?: boolean;
+  onCancelUpdate?: () => void;
+  onAnalysisComplete: (
+    frontPhoto: StoredPhoto,
+    sidePhoto: StoredPhoto,
+    result: PSLAnalysisResult,
+  ) => void;
 }
 
-/**
- * Downscales any uploaded image or video frame to max 1024px JPEG (~100KB)
- * so Next.js / Gemini requests never fail from oversized mobile photos.
- */
-function compressFileToJpeg(file: File): Promise<CapturedPhoto> {
+const MAPPING_STAGE_LABELS: Record<number, string> = {
+  0: 'SCANNING OPTICS & ALIGNING ANATOMICAL REFERENCE FRAME...',
+  1: 'TRACING FOREHEAD, CHEEK, JAW & CHIN FACIAL BOUNDARY OUTLINES...',
+  2: 'MEASURING OUTER EYE CORNER TO OUTER EYE CORNER SPAN...',
+  3: 'CALCULATING HAIRLINE-TO-CHIN HEIGHT & FACIAL THIRDS...',
+  4: 'MAPPING BIZYGOMATIC CHEEKBONE, JAW & CHIN WIDTHS...',
+  5: 'TRACING NASAL BRIDGE, PROJECTION, GONIAL ANGLE & CERVICAL NECK LINE...',
+  6: 'FACIAL MAPPING COMPLETE — COMPILING STRICT PSL REPORT...',
+};
+
+function compressFileToJpeg(file: File): Promise<StoredPhoto> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
       const maxDim = 1024;
-      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+      const scale = Math.min(
+        1,
+        maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1),
+      );
       const width = Math.max(1, Math.round((img.naturalWidth || 720) * scale));
       const height = Math.max(1, Math.round((img.naturalHeight || 960) * scale));
 
@@ -130,248 +77,53 @@ function compressFileToJpeg(file: File): Promise<CapturedPhoto> {
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(new Error('Unsupported or unreadable image format. Please choose a JPEG or PNG photo.'));
+      reject(
+        new Error(
+          'Unsupported or unreadable image format. Please choose a JPEG or PNG photo.',
+        ),
+      );
     };
     img.src = objectUrl;
   });
 }
 
-function FrontLandmarkOverlay({
-  photo,
-  landmarks,
-  showLandmarks,
-}: {
-  photo: CapturedPhoto;
-  landmarks: FrontLandmarks;
-  showLandmarks: boolean;
-}) {
-  const { width: w, height: h } = photo;
-  const px = (pt: Point2D) => ({
-    x: (pt.x / 1000) * w,
-    y: (pt.y / 1000) * h,
-  });
-
-  const hairline = px(landmarks.hairlineTop);
-  const brow = px(landmarks.browMid);
-  const nose = px(landmarks.noseBase);
-  const chin = px(landmarks.chinBottom);
-  const lPupil = px(landmarks.leftPupil);
-  const rPupil = px(landmarks.rightPupil);
-  const cheekL = px(landmarks.cheekLeft);
-  const cheekR = px(landmarks.cheekRight);
-  const mouthL = px(landmarks.mouthLeft);
-  const mouthR = px(landmarks.mouthRight);
-  const jawL = px(landmarks.jawLeft);
-  const jawR = px(landmarks.jawRight);
-
-  const unit = Math.max(w, h) / 480;
-  const dotR = 3.2 * unit;
-  const strokeW = 1.4 * unit;
-
-  // Vertical thirds guide sits slightly offset or along the midline cleanly
-  const thirdsX = Math.min(w - 18 * unit, Math.max(cheekR.x + 14 * unit, w * 0.84));
-  const midX = (hairline.x + chin.x) / 2;
-
-  const renderDotPairLine = (
-    a: { x: number; y: number },
-    b: { x: number; y: number },
-    stroke = 'rgba(255,255,255,0.92)',
-    dashed = false,
-  ) => (
-    <g>
-      <line
-        x1={a.x}
-        y1={a.y}
-        x2={b.x}
-        y2={b.y}
-        stroke={stroke}
-        strokeWidth={strokeW}
-        strokeDasharray={dashed ? `${4 * unit} ${3 * unit}` : undefined}
-      />
-      <circle cx={a.x} cy={a.y} r={dotR} fill="#ffffff" stroke="#0a0a0a" strokeWidth={0.9 * unit} />
-      <circle cx={b.x} cy={b.y} r={dotR} fill="#ffffff" stroke="#0a0a0a" strokeWidth={0.9 * unit} />
-    </g>
-  );
-
-  return (
-    <div className="relative w-full overflow-hidden rounded-[22px] border border-[#0a0a0a]/20 bg-[#141414]">
-      <img
-        src={photo.dataUrl}
-        alt="Analyzed front facial geometry"
-        className="block w-full h-auto"
-      />
-
-      {showLandmarks && (
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          aria-hidden="true"
-        >
-          {/* Subtle symmetry centerline */}
-          <line
-            x1={midX}
-            y1={Math.max(8, hairline.y - 12 * unit)}
-            x2={midX}
-            y2={Math.min(h - 8, chin.y + 12 * unit)}
-            stroke="rgba(255,255,255,0.28)"
-            strokeWidth={0.9 * unit}
-            strokeDasharray={`${3 * unit} ${4 * unit}`}
-          />
-
-          {/* Horizontal Facial Thirds boundary reference ticks */}
-          {[hairline, brow, nose, chin].map((pt, i) => (
-            <g key={i}>
-              <line
-                x1={Math.max(10 * unit, cheekL.x - 10 * unit)}
-                y1={pt.y}
-                x2={thirdsX}
-                y2={pt.y}
-                stroke="rgba(255,255,255,0.34)"
-                strokeWidth={0.85 * unit}
-                strokeDasharray={`${3 * unit} ${3 * unit}`}
-              />
-              <circle
-                cx={thirdsX}
-                cy={pt.y}
-                r={dotR * 0.9}
-                fill="#ffffff"
-                stroke="#0a0a0a"
-                strokeWidth={0.85 * unit}
-              />
-            </g>
-          ))}
-
-          {/* Facial Thirds vertical ruler connecting hairline -> brow -> nose -> chin */}
-          <line
-            x1={thirdsX}
-            y1={hairline.y}
-            x2={thirdsX}
-            y2={chin.y}
-            stroke="rgba(255,255,255,0.8)"
-            strokeWidth={strokeW}
-          />
-
-          {/* 1. Left-to-right eye distance (pupils) with start & end dots */}
-          {renderDotPairLine(lPupil, rPupil, 'rgba(255,255,255,0.95)')}
-
-          {/* 2. Cheekbone width (bizygomatic) with start & end dots */}
-          {renderDotPairLine(cheekL, cheekR, 'rgba(255,255,255,0.58)', true)}
-
-          {/* 3. Lips starting-to-end width with two dots */}
-          {renderDotPairLine(mouthL, mouthR, 'rgba(255,255,255,0.95)')}
-
-          {/* 4. Jawline contour with gonial + chin dots */}
-          <polyline
-            points={`${jawL.x},${jawL.y} ${chin.x},${chin.y} ${jawR.x},${jawR.y}`}
-            fill="none"
-            stroke="rgba(255,255,255,0.88)"
-            strokeWidth={strokeW}
-          />
-          {[jawL, chin, jawR, hairline, brow, nose].map((pt, idx) => (
-            <circle
-              key={`v-${idx}`}
-              cx={pt.x}
-              cy={pt.y}
-              r={dotR}
-              fill="#ffffff"
-              stroke="#0a0a0a"
-              strokeWidth={0.9 * unit}
-            />
-          ))}
-        </svg>
-      )}
-    </div>
-  );
-}
-
-function SideLandmarkOverlay({
-  photo,
-  landmarks,
-  showLandmarks,
-}: {
-  photo: CapturedPhoto;
-  landmarks: SideLandmarks;
-  showLandmarks: boolean;
-}) {
-  const { width: w, height: h } = photo;
-  const px = (pt: Point2D) => ({
-    x: (pt.x / 1000) * w,
-    y: (pt.y / 1000) * h,
-  });
-
-  const ear = px(landmarks.earTragus);
-  const gonial = px(landmarks.gonialCorner);
-  const chin = px(landmarks.chinTip);
-  const neck = px(landmarks.neckBase);
-
-  const unit = Math.max(w, h) / 480;
-  const dotR = 3.2 * unit;
-  const strokeW = 1.4 * unit;
-
-  return (
-    <div className="relative w-full overflow-hidden rounded-[22px] border border-[#0a0a0a]/20 bg-[#141414]">
-      <img
-        src={photo.dataUrl}
-        alt="Analyzed side profile and neck posture"
-        className="block w-full h-auto"
-      />
-      {showLandmarks && (
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          aria-hidden="true"
-        >
-          {/* Cervical neck alignment line (ear tragus -> neck base) */}
-          <line
-            x1={ear.x}
-            y1={ear.y}
-            x2={neck.x}
-            y2={neck.y}
-            stroke="rgba(255,255,255,0.85)"
-            strokeWidth={strokeW}
-            strokeDasharray={`${4 * unit} ${3 * unit}`}
-          />
-          {/* Mandibular plane (ear -> gonial -> chin) */}
-          <polyline
-            points={`${ear.x},${ear.y} ${gonial.x},${gonial.y} ${chin.x},${chin.y}`}
-            fill="none"
-            stroke="rgba(255,255,255,0.95)"
-            strokeWidth={strokeW}
-          />
-          {[ear, gonial, chin, neck].map((pt, idx) => (
-            <circle
-              key={idx}
-              cx={pt.x}
-              cy={pt.y}
-              r={dotR}
-              fill="#ffffff"
-              stroke="#0a0a0a"
-              strokeWidth={0.9 * unit}
-            />
-          ))}
-        </svg>
-      )}
-    </div>
-  );
-}
-
-export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) {
+export function CurvedCameraBox({
+  externalTriggerCount,
+  profile,
+  previousAnalysisSummary,
+  isUpdatingSelfie = false,
+  onCancelUpdate,
+  onAnalysisComplete,
+}: CurvedCameraBoxProps) {
   const [mode, setMode] = useState<BoxMode>('idle');
-  const [captureStep, setCaptureStep] = useState<CaptureStep>('front');
+  const [activeSlot, setActiveSlot] = useState<CaptureSlot>('front');
   const [liveFeedActive, setLiveFeedActive] = useState(false);
-  const [cameraNotice, setCameraNotice] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [frontPhoto, setFrontPhoto] = useState<CapturedPhoto | null>(null);
-  const [sidePhoto, setSidePhoto] = useState<CapturedPhoto | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [showLandmarks, setShowLandmarks] = useState(true);
+  const [cameraNotice, setCameraNotice] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const [frontPhoto, setFrontPhoto] = useState<StoredPhoto | null>(null);
+  const [sidePhoto, setSidePhoto] = useState<StoredPhoto | null>(null);
+  const [validatingSlot, setValidatingSlot] = useState<CaptureSlot | null>(null);
+  const [slotErrors, setSlotErrors] = useState<{ front?: string; side?: string }>({});
+
+  // Real-time facial mapping progress state
+  const [pendingResult, setPendingResult] = useState<PSLAnalysisResult | null>(null);
+  const [revealStage, setRevealStage] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastTriggerRef = useRef<number>(externalTriggerCount);
+  const mappingTimersRef = useRef<number[]>([]);
 
-  const galleryInputId = useId();
-  const nativeCameraInputId = useId();
+  const frontUploadId = useId();
+  const frontCameraId = useId();
+  const sideUploadId = useId();
+  const sideCameraId = useId();
+
+  const clearMappingTimers = useCallback(() => {
+    mappingTimersRef.current.forEach((id) => window.clearTimeout(id));
+    mappingTimersRef.current = [];
+  }, []);
 
   const stopCameraStream = useCallback(() => {
     if (streamRef.current) {
@@ -387,21 +139,20 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
   useEffect(() => {
     return () => {
       stopCameraStream();
+      clearMappingTimers();
     };
-  }, [stopCameraStream]);
+  }, [stopCameraStream, clearMappingTimers]);
 
-  // Attach active MediaStream whenever video element is mounted & stream is ready
   useEffect(() => {
     if (mode !== 'camera' || !liveFeedActive) return;
     const videoEl = videoRef.current;
     const stream = streamRef.current;
     if (!videoEl || !stream) return;
-
     videoEl.srcObject = stream;
     void videoEl.play().catch(() => {
-      // Autoplay handled by muted + playsInline
+      // Autoplay controlled via muted + playsInline
     });
-  }, [mode, liveFeedActive, captureStep]);
+  }, [mode, liveFeedActive, activeSlot]);
 
   const requestCameraWithTimeout = async (): Promise<MediaStream> => {
     const getStream = async () => {
@@ -435,15 +186,18 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
   };
 
   const openCamera = useCallback(
-    async (step: CaptureStep = 'front') => {
+    async (slot: CaptureSlot = 'front', preserveExisting = false) => {
+      clearMappingTimers();
       setErrorMessage('');
       setCameraNotice('');
-      if (step === 'front') {
-        setAnalysis(null);
+      if (!preserveExisting) {
         setFrontPhoto(null);
         setSidePhoto(null);
+        setSlotErrors({});
       }
-      setCaptureStep(step);
+      setPendingResult(null);
+      setRevealStage(0);
+      setActiveSlot(slot);
       stopCameraStream();
 
       if (
@@ -452,7 +206,7 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
         !navigator.mediaDevices.getUserMedia
       ) {
         setCameraNotice(
-          'Live webcam stream is unavailable in this preview context. Use "Take Selfie" or "Upload Photo" below.',
+          'Live webcam stream is unavailable in this preview frame. Use the FRONT PROFILE and SIDE PROFILE upload or camera buttons below.',
         );
         setLiveFeedActive(false);
         setMode('camera');
@@ -468,30 +222,33 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
       } catch (err) {
         const msg =
           err instanceof Error && err.name === 'NotAllowedError'
-            ? 'Live webcam permission was blocked by the preview frame. Use "Take Selfie" or "Upload Photo" below.'
-            : 'Live webcam is unavailable inside this preview frame. Use "Take Selfie" or "Upload Photo" below.';
+            ? 'Live webcam permission was blocked by the preview frame. Use the FRONT PROFILE and SIDE PROFILE buttons below.'
+            : 'Live webcam is unavailable inside this preview frame. Use the FRONT PROFILE and SIDE PROFILE buttons below.';
         setCameraNotice(msg);
         setLiveFeedActive(false);
         setMode('camera');
       }
     },
-    [stopCameraStream],
+    [clearMappingTimers, stopCameraStream],
   );
 
-  // Open upload-first stage cleanly when user clicks "Or upload front & side selfies"
   const openUploadStage = useCallback(() => {
+    clearMappingTimers();
     stopCameraStream();
     setErrorMessage('');
-    setCameraNotice('Upload or take Step 1 (Front Selfie), then Step 2 (Side Profile with Neck).');
-    setAnalysis(null);
+    setCameraNotice(
+      'Upload or capture a clear FRONT PROFILE and a genuine 90° SIDE PROFILE below.',
+    );
     setFrontPhoto(null);
     setSidePhoto(null);
-    setCaptureStep('front');
+    setSlotErrors({});
+    setPendingResult(null);
+    setRevealStage(0);
+    setActiveSlot('front');
     setLiveFeedActive(false);
     setMode('camera');
-  }, [stopCameraStream]);
+  }, [clearMappingTimers, stopCameraStream]);
 
-  // Respond to Hero / Nav / Footer "Get your ratings" button clicks
   useEffect(() => {
     if (externalTriggerCount > lastTriggerRef.current) {
       lastTriggerRef.current = externalTriggerCount;
@@ -499,59 +256,144 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
     }
   }, [externalTriggerCount, openCamera]);
 
-  const runAnalysis = async (front: CapturedPhoto, side: CapturedPhoto) => {
-    stopCameraStream();
-    setMode('analyzing');
-    setErrorMessage('');
-
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frontImageBase64: front.dataUrl,
-          frontMimeType: 'image/jpeg',
-          sideImageBase64: side.dataUrl,
-          sideMimeType: 'image/jpeg',
-        }),
-      });
-
-      const payload = (await response.json()) as AnalysisResult & { error?: string };
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error || 'Unable to analyze portraits.');
-      }
-
-      setAnalysis(payload);
-      setMode('result');
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Unable to analyze portraits.',
-      );
-      setMode('error');
-    }
-  };
-
-  const handlePhotoAccepted = useCallback(
-    (photo: CapturedPhoto) => {
+  const validateAndAssignPhoto = useCallback(
+    async (slot: CaptureSlot, photo: StoredPhoto) => {
+      setValidatingSlot(slot);
+      setSlotErrors((prev) => ({ ...prev, [slot]: undefined }));
       setErrorMessage('');
-      if (captureStep === 'front') {
-        setFrontPhoto(photo);
-        setCaptureStep('side');
-        setMode('camera');
-      } else {
-        setSidePhoto(photo);
-        if (frontPhoto) {
-          void runAnalysis(frontPhoto, photo);
+
+      try {
+        const res = await fetch('/api/validate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: photo.dataUrl,
+            mimeType: 'image/jpeg',
+            expectedProfile: slot,
+          }),
+        });
+
+        const payload = (await res.json()) as {
+          valid?: boolean;
+          message?: string;
+          error?: string;
+        };
+
+        if (!res.ok || payload.error) {
+          throw new Error(
+            payload.error || 'Could not validate photo. Please try again.',
+          );
         }
+
+        if (!payload.valid) {
+          const fallbackMsg =
+            slot === 'front'
+              ? 'Invalid Image. Please upload a clear front-facing photograph.'
+              : 'Incorrect Profile. Please upload a genuine side-profile photograph.';
+          setSlotErrors((prev) => ({
+            ...prev,
+            [slot]: payload.message || fallbackMsg,
+          }));
+          if (slot === 'front') setFrontPhoto(null);
+          if (slot === 'side') setSidePhoto(null);
+          return;
+        }
+
+        if (slot === 'front') {
+          setFrontPhoto(photo);
+          setActiveSlot('side');
+        } else {
+          setSidePhoto(photo);
+        }
+      } catch (err) {
+        setSlotErrors((prev) => ({
+          ...prev,
+          [slot]:
+            err instanceof Error
+              ? err.message
+              : 'Validation temporarily unavailable. Please retry.',
+        }));
+      } finally {
+        setValidatingSlot(null);
       }
     },
-    [captureStep, frontPhoto],
+    [],
+  );
+
+  const runAnalysis = useCallback(
+    async (front: StoredPhoto, side: StoredPhoto) => {
+      clearMappingTimers();
+      stopCameraStream();
+      setMode('analyzing');
+      setErrorMessage('');
+      setPendingResult(null);
+      setRevealStage(0);
+
+      try {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            frontImageBase64: front.dataUrl,
+            frontMimeType: 'image/jpeg',
+            sideImageBase64: side.dataUrl,
+            sideMimeType: 'image/jpeg',
+            profile: profile ?? null,
+            previousAnalysisSummary: previousAnalysisSummary ?? null,
+          }),
+        });
+
+        const payload = (await response.json()) as PSLAnalysisResult & {
+          error?: string;
+        };
+
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error || 'Unable to analyze portraits.');
+        }
+
+        if (!payload.faceDetected) {
+          throw new Error(
+            payload.imageQualityWarning ||
+              'No clear human face detected across both portraits. Please retake with better lighting.',
+          );
+        }
+
+        // Progressive real-time facial mapping animation over the user's actual photos
+        setPendingResult(payload);
+        setRevealStage(1);
+
+        const delays = [650, 1300, 1950, 2650, 3400, 4100];
+        delays.forEach((ms, index) => {
+          const t = window.setTimeout(() => {
+            const stage = index + 2;
+            if (stage <= 6) {
+              setRevealStage(stage);
+            } else {
+              onAnalysisComplete(front, side, payload);
+            }
+          }, ms);
+          mappingTimersRef.current.push(t);
+        });
+      } catch (err) {
+        clearMappingTimers();
+        setErrorMessage(
+          err instanceof Error ? err.message : 'Unable to analyze portraits.',
+        );
+        setMode('error');
+      }
+    },
+    [
+      clearMappingTimers,
+      onAnalysisComplete,
+      previousAnalysisSummary,
+      profile,
+      stopCameraStream,
+    ],
   );
 
   const captureFrameFromVideo = () => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || validatingSlot) return;
 
     const rawW = video.videoWidth || 960;
     const rawH = video.videoHeight || 720;
@@ -571,35 +413,48 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
     ctx.drawImage(video, 0, 0, width, height);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-    handlePhotoAccepted({ dataUrl, width, height });
+    void validateAndAssignPhoto(activeSlot, { dataUrl, width, height });
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (
+    slot: CaptureSlot,
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
 
+    setActiveSlot(slot);
     try {
       const compressed = await compressFileToJpeg(file);
-      handlePhotoAccepted(compressed);
+      await validateAndAssignPhoto(slot, compressed);
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Could not read that photo.',
-      );
-      setMode('error');
+      setSlotErrors((prev) => ({
+        ...prev,
+        [slot]: err instanceof Error ? err.message : 'Could not read that photo.',
+      }));
     }
   };
 
   const handleReset = () => {
+    clearMappingTimers();
     stopCameraStream();
     setFrontPhoto(null);
     setSidePhoto(null);
-    setAnalysis(null);
+    setSlotErrors({});
     setCameraNotice('');
     setErrorMessage('');
-    setCaptureStep('front');
+    setPendingResult(null);
+    setRevealStage(0);
+    setActiveSlot('front');
+    if (isUpdatingSelfie && onCancelUpdate) {
+      onCancelUpdate();
+      return;
+    }
     setMode('idle');
   };
+
+  const bothValidated = Boolean(frontPhoto && sidePhoto && !validatingSlot);
 
   return (
     <section
@@ -607,31 +462,45 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
       className="scroll-mt-24 mx-auto max-w-5xl px-4 pb-16 sm:px-6 sm:pb-24"
     >
       <div className="relative overflow-hidden rounded-[36px] sm:rounded-[48px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-6 sm:p-10 md:p-14 shadow-[0_24px_60px_-28px_rgba(10,10,10,0.22)]">
-        {/* Visually-hidden file inputs triggered reliably via native <label htmlFor> */}
+        {/* Four isolated file inputs for reliable FRONT & SIDE upload/selfie */}
         <input
-          id={galleryInputId}
+          id={frontUploadId}
           type="file"
           accept="image/*"
-          onChange={(e) => void handleFileChange(e)}
+          onChange={(e) => void handleFileChange('front', e)}
           className="sr-only"
         />
         <input
-          id={nativeCameraInputId}
+          id={frontCameraId}
           type="file"
           accept="image/*"
           capture="user"
-          onChange={(e) => void handleFileChange(e)}
+          onChange={(e) => void handleFileChange('front', e)}
+          className="sr-only"
+        />
+        <input
+          id={sideUploadId}
+          type="file"
+          accept="image/*"
+          onChange={(e) => void handleFileChange('side', e)}
+          className="sr-only"
+        />
+        <input
+          id={sideCameraId}
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={(e) => void handleFileChange('side', e)}
           className="sr-only"
         />
 
-        {/* IDLE STATE: Stacked "Get / your / rating" in Pomelli font exclusively here */}
+        {/* IDLE STATE */}
         {mode === 'idle' && (
           <div className="flex flex-col items-center justify-center py-6 text-center sm:py-10">
             <p className="text-[11px] font-medium tracking-[0.12em] text-[#0a0a0a]/65 mb-6">
               [OPTICAL SCANNER · FRONT &amp; SIDE PROFILE]
             </p>
 
-            {/* Stacked Pomelli-font typography used ONLY on this curved camera opener box */}
             <div className="pomelli-display select-none text-[clamp(4rem,10.5vw,7.75rem)] text-[#0a0a0a]">
               <span className="block">Get</span>
               <span className="block">your</span>
@@ -676,24 +545,19 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
                 Opening camera
               </p>
               <p className="text-sm text-[#3f3f3c]">
-                Allow camera access when prompted, or use the direct camera/upload options below.
+                Allow camera access when prompted, or switch immediately to the dual
+                front &amp; side uploader.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <label
-                htmlFor={nativeCameraInputId}
-                className="tactile-cta cursor-pointer inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-xs sm:text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+              <button
+                type="button"
+                onClick={openUploadStage}
+                className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-xs sm:text-sm font-medium text-[#f3f3f1]"
               >
-                <Camera className="h-4 w-4" />
-                <span>Take Front Selfie</span>
-              </label>
-              <label
-                htmlFor={galleryInputId}
-                className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors whitespace-nowrap"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                <span>Upload Photo</span>
-              </label>
+                <Upload className="h-4 w-4" />
+                <span>Upload Front &amp; Side Photos</span>
+              </button>
               <button
                 type="button"
                 onClick={handleReset}
@@ -705,233 +569,354 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
           </div>
         )}
 
-        {/* CAMERA & GUIDED FRONT -> SIDE PROFILE CAPTURE STAGE */}
+        {/* CAMERA + STRICT TWO-SLOT FRONT & SIDE VALIDATED UPLOADER */}
         {mode === 'camera' && (
           <div className="flex flex-col gap-5">
-            {/* Step header */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-medium tracking-[0.12em] text-[#0a0a0a]/70">
-                  {captureStep === 'front'
-                    ? '[STEP 1 OF 2 · FRONT FACE SCAN]'
-                    : '[STEP 2 OF 2 · SIDE PROFILE WITH NECK]'}
+                  {isUpdatingSelfie
+                    ? '[UPDATING SELFIE · COMPARE AGAINST PREVIOUS SCAN]'
+                    : '[STRICT TWO-ANGLE VALIDATION · FRONT & SIDE PROFILE]'}
                 </p>
                 <p className="pomelli-display text-2xl sm:text-3xl text-[#0a0a0a] mt-1">
-                  {captureStep === 'front'
-                    ? 'Center your front face'
-                    : 'Side profile & neck'}
+                  {activeSlot === 'front'
+                    ? 'Slot 1: Front Profile'
+                    : 'Slot 2: 90° Side Profile'}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2.5">
-                {frontPhoto && captureStep === 'side' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFrontPhoto(null);
-                      setCaptureStep('front');
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-3 py-1.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors whitespace-nowrap"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    <span>Front Saved · Retake</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  aria-label="Close scanner"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleReset}
+                aria-label="Close scanner"
+                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-3.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors"
+              >
+                <X className="h-4 w-4" />
+                <span>{isUpdatingSelfie ? 'Back to Dashboard' : 'Close'}</span>
+              </button>
             </div>
 
-            {/* Viewport with Circular Oval Face-Fit Border */}
-            <div className="relative mx-auto aspect-[4/3] w-full max-w-2xl overflow-hidden rounded-[28px] border border-[#0a0a0a]/20 bg-[#141414]">
-              {liveFeedActive ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-full w-full -scale-x-100 object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center text-[#f3f3f1]/85">
-                  <p className="max-w-sm text-xs sm:text-sm leading-relaxed">
-                    {captureStep === 'front'
-                      ? cameraNotice ||
-                        'Tap "Take Selfie" or "Upload Front Photo" below to submit your front face inside the oval.'
-                      : 'Front selfie saved. Now upload or take a side-profile photo showing your jawline and neck for posture ratings.'}
-                  </p>
+            {/* Live Webcam Oval Viewport when camera feed is available */}
+            {liveFeedActive ? (
+              <div className="space-y-3">
+                <div className="relative mx-auto aspect-[4/3] w-full max-w-2xl overflow-hidden rounded-[28px] border border-[#0a0a0a]/20 bg-[#141414]">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-full w-full -scale-x-100 object-cover"
+                  />
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div
+                      className={`relative flex items-center justify-center rounded-[50%] border-2 border-white/85 shadow-[0_0_0_9999px_rgba(10,10,10,0.36)] ${
+                        activeSlot === 'front'
+                          ? 'h-[76%] w-[46%] max-w-[240px]'
+                          : 'h-[80%] w-[54%] max-w-[270px]'
+                      }`}
+                    >
+                      {activeSlot === 'side' && (
+                        <span className="rounded-full bg-[#0a0a0a]/60 px-2.5 py-1 text-[10px] font-medium tracking-[0.08em] text-white">
+                          90° PROFILE + NECK
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
 
-              {/* Circular Oval Border Guide Overlay */}
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div
-                  className={`relative flex items-center justify-center rounded-[50%] border-2 transition-all duration-200 ${
-                    captureStep === 'front'
-                      ? 'h-[76%] w-[46%] max-w-[240px] border-white/85 shadow-[0_0_0_9999px_rgba(10,10,10,0.36)]'
-                      : 'h-[80%] w-[54%] max-w-[270px] border-white/85 shadow-[0_0_0_9999px_rgba(10,10,10,0.36)]'
-                  }`}
-                >
-                  {captureStep === 'front' ? (
-                    <>
-                      <span className="absolute inset-y-4 left-1/2 w-px -translate-x-1/2 bg-white/25" />
-                      <span className="absolute inset-x-4 top-[44%] h-px bg-white/25" />
-                    </>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button
+                    type="button"
+                    disabled={Boolean(validatingSlot)}
+                    onClick={captureFrameFromVideo}
+                    className="tactile-cta inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] disabled:opacity-50"
+                  >
+                    {validatingSlot === activeSlot ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Validating {activeSlot}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="h-4 w-4" />
+                        <span>
+                          {activeSlot === 'front'
+                            ? 'Capture Front Profile'
+                            : 'Capture Side Profile'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              cameraNotice && (
+                <p className="rounded-2xl border border-[#0a0a0a]/12 bg-[#dadad7]/80 px-4 py-2.5 text-center text-xs text-[#3f3f3c]">
+                  {cameraNotice}
+                </p>
+              )
+            )}
+
+            {/* TWO DEDICATED UPLOAD SLOTS: FRONT PROFILE & SIDE PROFILE */}
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* FRONT PROFILE SLOT */}
+              <div
+                className={`flex flex-col justify-between rounded-[24px] border p-4 sm:p-5 transition-colors ${
+                  activeSlot === 'front'
+                    ? 'border-[#0a0a0a] bg-[#f1f1ee]'
+                    : 'border-[#0a0a0a]/15 bg-[#dadad7]/55'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold tracking-[0.12em] text-[#0a0a0a] uppercase">
+                      FRONT PROFILE
+                    </span>
+                    <p className="text-[11px] text-[#3f3f3c]">
+                      Eye-level straight gaze, clear lighting
+                    </p>
+                  </div>
+                  {frontPhoto ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2.5 py-0.5 text-[10px] font-semibold text-white">
+                      <Check className="h-3 w-3" />
+                      <span>VALIDATED</span>
+                    </span>
+                  ) : validatingSlot === 'front' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#0a0a0a] px-2.5 py-0.5 text-[10px] font-medium text-white">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span>CHECKING...</span>
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="my-3 flex h-44 items-center justify-center overflow-hidden rounded-2xl border border-[#0a0a0a]/15 bg-[#141414]">
+                  {frontPhoto ? (
+                    <img
+                      src={frontPhoto.dataUrl}
+                      alt="Validated front profile"
+                      className="h-full w-full object-cover object-top"
+                    />
                   ) : (
-                    <span className="rounded-full bg-[#0a0a0a]/60 px-2.5 py-1 text-[10px] font-medium tracking-[0.08em] text-white/95">
-                      90° PROFILE + NECK
+                    <span className="px-4 text-center text-xs text-white/65">
+                      Front-facing portrait required
                     </span>
                   )}
                 </div>
+
+                {slotErrors.front && (
+                  <div className="mb-3 flex items-start gap-2 rounded-xl border border-red-700/30 bg-red-600/10 px-3 py-2 text-xs font-medium text-red-900">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{slotErrors.front}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <label
+                    htmlFor={frontCameraId}
+                    onClick={() => setActiveSlot('front')}
+                    className="tactile-cta cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-[#f3f3f1] whitespace-nowrap"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    <span>{frontPhoto ? 'Retake Front' : 'Take Selfie'}</span>
+                  </label>
+                  <label
+                    htmlFor={frontUploadId}
+                    onClick={() => setActiveSlot('front')}
+                    className="cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[#0a0a0a]/25 bg-white px-3.5 py-2 text-xs font-medium text-[#0a0a0a] hover:bg-[#f5f5f2] whitespace-nowrap"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>Upload Front</span>
+                  </label>
+                </div>
               </div>
 
-              {/* Front thumbnail badge when capturing step 2 */}
-              {frontPhoto && captureStep === 'side' && (
-                <div className="absolute top-3 left-3 flex items-center gap-2 rounded-xl border border-white/25 bg-[#0a0a0a]/70 p-1.5 pr-3 text-[11px] font-medium text-white backdrop-blur-sm">
-                  <img
-                    src={frontPhoto.dataUrl}
-                    alt="Captured front selfie"
-                    className="h-8 w-8 rounded-lg object-cover"
-                  />
-                  <span>Front captured</span>
+              {/* SIDE PROFILE SLOT */}
+              <div
+                className={`flex flex-col justify-between rounded-[24px] border p-4 sm:p-5 transition-colors ${
+                  activeSlot === 'side'
+                    ? 'border-[#0a0a0a] bg-[#f1f1ee]'
+                    : 'border-[#0a0a0a]/15 bg-[#dadad7]/55'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold tracking-[0.12em] text-[#0a0a0a] uppercase">
+                      SIDE PROFILE
+                    </span>
+                    <p className="text-[11px] text-[#3f3f3c]">
+                      True 90° side turn showing jaw &amp; neck
+                    </p>
+                  </div>
+                  {sidePhoto ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2.5 py-0.5 text-[10px] font-semibold text-white">
+                      <Check className="h-3 w-3" />
+                      <span>VALIDATED</span>
+                    </span>
+                  ) : validatingSlot === 'side' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#0a0a0a] px-2.5 py-0.5 text-[10px] font-medium text-white">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span>CHECKING...</span>
+                    </span>
+                  ) : null}
                 </div>
-              )}
+
+                <div className="my-3 flex h-44 items-center justify-center overflow-hidden rounded-2xl border border-[#0a0a0a]/15 bg-[#141414]">
+                  {sidePhoto ? (
+                    <img
+                      src={sidePhoto.dataUrl}
+                      alt="Validated side profile"
+                      className="h-full w-full object-cover object-top"
+                    />
+                  ) : (
+                    <span className="px-4 text-center text-xs text-white/65">
+                      Genuine 90° side profile required
+                    </span>
+                  )}
+                </div>
+
+                {slotErrors.side && (
+                  <div className="mb-3 flex items-start gap-2 rounded-xl border border-red-700/30 bg-red-600/10 px-3 py-2 text-xs font-medium text-red-900">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{slotErrors.side}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <label
+                    htmlFor={sideCameraId}
+                    onClick={() => setActiveSlot('side')}
+                    className="tactile-cta cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-[#f3f3f1] whitespace-nowrap"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    <span>{sidePhoto ? 'Retake Side' : 'Take Side'}</span>
+                  </label>
+                  <label
+                    htmlFor={sideUploadId}
+                    onClick={() => setActiveSlot('side')}
+                    className="cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[#0a0a0a]/25 bg-white px-3.5 py-2 text-xs font-medium text-[#0a0a0a] hover:bg-[#f5f5f2] whitespace-nowrap"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>Upload Side</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
-            {/* Tip + Centered Primary Action + Balanced Secondary Row */}
-            <div className="flex flex-col items-center gap-5 pt-1">
-              <p className="text-center text-xs sm:text-sm font-medium leading-snug text-[#0a0a0a]">
-                {captureStep === 'front'
-                  ? 'Tip: Keep at eye level in front of good lighting and fit your face inside the oval.'
-                  : 'Tip: Keep at eye level in front of good lighting — turn sideways showing your jawline and neck for posture ratings.'}
-              </p>
+            {/* Begin Analysis Button (Locked until BOTH Front and Side pass validation) */}
+            <div className="flex flex-col items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={!bothValidated}
+                onClick={() => {
+                  if (frontPhoto && sidePhoto) {
+                    void runAnalysis(frontPhoto, sidePhoto);
+                  }
+                }}
+                className="tactile-cta inline-flex items-center gap-2.5 rounded-full px-7 py-3.5 text-sm font-semibold text-[#f3f3f1] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span>
+                  {bothValidated
+                    ? 'ANALYZE FACIAL STRUCTURE'
+                    : 'UPLOAD & VALIDATE BOTH PROFILES TO CONTINUE'}
+                </span>
+                <ArrowUpRight className="h-4 w-4" />
+              </button>
 
-              <div className="flex justify-center">
-                {liveFeedActive ? (
-                  <button
-                    type="button"
-                    onClick={captureFrameFromVideo}
-                    className="tactile-cta inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
-                  >
-                    <Camera className="h-4 w-4" />
-                    <span>
-                      {captureStep === 'front'
-                        ? 'Capture Front Face'
-                        : 'Capture Side & Analyze'}
-                    </span>
-                    <ArrowUpRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <label
-                    htmlFor={nativeCameraInputId}
-                    className="tactile-cta cursor-pointer inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
-                  >
-                    <Camera className="h-4 w-4" />
-                    <span>
-                      {captureStep === 'front'
-                        ? 'Take Front Selfie'
-                        : 'Take Side & Neck Selfie'}
-                    </span>
-                    <ArrowUpRight className="h-4 w-4" />
-                  </label>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <label
-                  htmlFor={galleryInputId}
-                  className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-5 py-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors whitespace-nowrap"
+              {!liveFeedActive && (
+                <button
+                  type="button"
+                  onClick={() => void openCamera(activeSlot, true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-[#3f3f3c] hover:text-[#0a0a0a] underline underline-offset-4"
                 >
-                  <Upload className="h-3.5 w-3.5" />
-                  <span>
-                    {captureStep === 'front'
-                      ? 'Upload Front Photo'
-                      : 'Upload Side Profile'}
-                  </span>
-                </label>
-
-                {!liveFeedActive && (
-                  <button
-                    type="button"
-                    onClick={() => void openCamera(captureStep)}
-                    className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2.5 text-xs font-medium text-[#3f3f3c] hover:text-[#0a0a0a] underline underline-offset-4"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Retry Live Camera</span>
-                  </button>
-                )}
-              </div>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>Retry Live Camera</span>
+                </button>
+              )}
             </div>
           </div>
         )}
 
-        {/* ANALYZING STATE WITH ACTIVE LOADING INDICATOR */}
-        {mode === 'analyzing' && (
-          <div className="flex min-h-[380px] flex-col items-center justify-center gap-6 py-6 text-center">
-            <div className="flex items-center justify-center gap-4">
-              {frontPhoto && (
-                <div className="relative h-36 w-32 sm:h-44 sm:w-36 overflow-hidden rounded-[22px] border border-[#0a0a0a]/25 bg-[#141414]">
-                  <img
-                    src={frontPhoto.dataUrl}
-                    alt="Front facial scan frame"
-                    className="h-full w-full object-cover opacity-80"
-                  />
+        {/* REAL-TIME PROGRESSIVE FACIAL MAPPING ANIMATION */}
+        {mode === 'analyzing' && frontPhoto && sidePhoto && (
+          <div className="flex flex-col items-center justify-center gap-6 py-4 text-center">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
+                {revealStage >= 6 ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                    <span>FACIAL MAPPING COMPLETE</span>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
+                    <span>REAL-TIME COMPUTER VISION MAPPING</span>
+                  </>
+                )}
+              </div>
+
+              <h2 className="pomelli-display text-3xl sm:text-4xl text-[#0a0a0a]">
+                MAPPING OUT YOUR FACIAL STRUCTURE
+              </h2>
+            </div>
+
+            {/* Front & Side Photos displayed live with progressive animated SVG outlines & lines */}
+            <div className="grid w-full max-w-3xl gap-5 md:grid-cols-2 items-start">
+              <div className="relative">
+                <FrontMeasurementOverlay
+                  photo={frontPhoto}
+                  landmarks={pendingResult?.frontLandmarks ?? null}
+                  showLines={Boolean(pendingResult)}
+                  revealStage={revealStage}
+                  animateLines
+                  darkTheme={false}
+                />
+                {!pendingResult && (
                   <motion.div
                     aria-hidden="true"
-                    initial={{ top: '0%' }}
-                    animate={{ top: ['0%', '92%', '0%'] }}
-                    transition={{ duration: 2.1, repeat: Infinity, ease: 'easeInOut' }}
-                    className="pointer-events-none absolute inset-x-0 h-0.5 bg-white shadow-[0_0_10px_2px_rgba(255,255,255,0.85)]"
+                    initial={{ top: '4%' }}
+                    animate={{ top: ['4%', '92%', '4%'] }}
+                    transition={{ duration: 2.0, repeat: Infinity, ease: 'easeInOut' }}
+                    className="pointer-events-none absolute inset-x-2 h-0.5 bg-white shadow-[0_0_12px_2px_rgba(255,255,255,0.9)]"
                   />
-                </div>
-              )}
-              {sidePhoto && (
-                <div className="relative h-36 w-32 sm:h-44 sm:w-36 overflow-hidden rounded-[22px] border border-[#0a0a0a]/25 bg-[#141414]">
-                  <img
-                    src={sidePhoto.dataUrl}
-                    alt="Side profile and neck scan frame"
-                    className="h-full w-full object-cover opacity-80"
-                  />
+                )}
+              </div>
+
+              <div className="relative">
+                <SideMeasurementOverlay
+                  photo={sidePhoto}
+                  landmarks={pendingResult?.sideLandmarks ?? null}
+                  showLines={Boolean(pendingResult)}
+                  revealStage={revealStage}
+                  animateLines
+                  darkTheme={false}
+                />
+                {!pendingResult && (
                   <motion.div
                     aria-hidden="true"
                     initial={{ top: '92%' }}
-                    animate={{ top: ['92%', '0%', '92%'] }}
-                    transition={{ duration: 2.1, repeat: Infinity, ease: 'easeInOut' }}
-                    className="pointer-events-none absolute inset-x-0 h-0.5 bg-white shadow-[0_0_10px_2px_rgba(255,255,255,0.85)]"
+                    animate={{ top: ['92%', '4%', '92%'] }}
+                    transition={{ duration: 2.0, repeat: Infinity, ease: 'easeInOut' }}
+                    className="pointer-events-none absolute inset-x-2 h-0.5 bg-white shadow-[0_0_12px_2px_rgba(255,255,255,0.9)]"
                   />
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            <div className="w-full max-w-sm space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                <span>Analyzing facial structure...</span>
-              </div>
-
-              <p className="pomelli-display text-3xl sm:text-4xl text-[#0a0a0a]">
-                Mapping facial landmarks
-              </p>
-
-              {/* Smooth animated loading track */}
-              <div className="relative mx-auto h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-[#0a0a0a]/12">
+            <div className="w-full max-w-md space-y-2.5">
+              <div className="relative mx-auto h-1.5 w-full overflow-hidden rounded-full bg-[#0a0a0a]/12">
                 <motion.div
-                  initial={{ x: '-100%' }}
-                  animate={{ x: ['-100%', '220%'] }}
-                  transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-                  className="h-full w-1/2 rounded-full bg-[#0a0a0a]"
+                  initial={{ width: '10%' }}
+                  animate={{
+                    width: `${Math.min(100, Math.max(15, revealStage * 16 + 4))}%`,
+                  }}
+                  transition={{ duration: 0.45, ease: 'easeOut' }}
+                  className="h-full rounded-full bg-[#0a0a0a]"
                 />
               </div>
 
-              <p className="text-[11px] font-medium tracking-[0.1em] text-[#3f3f3c]">
-                MEASURING EYE SPAN · FACIAL THIRDS · LIP WIDTH · CERVICAL POSTURE
+              <p className="text-[11px] font-medium tracking-[0.09em] text-[#3f3f3c]">
+                {MAPPING_STAGE_LABELS[revealStage] ?? MAPPING_STAGE_LABELS[0]}
               </p>
             </div>
           </div>
@@ -947,7 +932,7 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
               {errorMessage}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              {frontPhoto && sidePhoto ? (
+              {frontPhoto && sidePhoto && (
                 <button
                   type="button"
                   onClick={() => void runAnalysis(frontPhoto, sidePhoto)}
@@ -956,18 +941,14 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
                   <RefreshCw className="h-4 w-4" />
                   <span>Retry Analysis</span>
                 </button>
-              ) : null}
+              )}
 
               <button
                 type="button"
-                onClick={() => void openCamera('front')}
-                className={`${
-                  frontPhoto && sidePhoto
-                    ? 'rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc]'
-                    : 'tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-[#f3f3f1]'
-                } whitespace-nowrap`}
+                onClick={() => void openCamera('front', true)}
+                className="rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] whitespace-nowrap"
               >
-                <span>{frontPhoto && sidePhoto ? 'Re-upload Photos' : 'Try Again'}</span>
+                Re-upload Photos
               </button>
 
               <button
@@ -979,254 +960,6 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
               </button>
             </div>
           </div>
-        )}
-
-        {/* RESULT SCORECARD: Analyzed Portraits w/ Landmark Lines & Dots ABOVE the PSL Ratings */}
-        {mode === 'result' && analysis && (
-          <motion.div
-            initial={{ opacity: 0, y: 28 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-            className="space-y-8"
-          >
-            {/* 1. UPLOADED / CAPTURED SELFIE LANDMARK ANALYSIS ABOVE THE RATINGS */}
-            {frontPhoto && (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-medium tracking-[0.12em] text-[#3f3f3c]">
-                      [STRUCTURAL LANDMARK MAP · {analysis.faceShape.toUpperCase()}]
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowLandmarks((s) => !s)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] transition-colors"
-                  >
-                    {showLandmarks ? (
-                      <>
-                        <EyeOff className="h-3.5 w-3.5" />
-                        <span>Hide Geometry Lines</span>
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="h-3.5 w-3.5" />
-                        <span>Show Geometry Lines</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div
-                  className={`grid gap-4 items-start ${
-                    sidePhoto ? 'md:grid-cols-2' : 'max-w-md mx-auto'
-                  }`}
-                >
-                  {analysis.faceDetected && analysis.frontLandmarks ? (
-                    <div className="space-y-2">
-                      <FrontLandmarkOverlay
-                        photo={frontPhoto}
-                        landmarks={analysis.frontLandmarks}
-                        showLandmarks={showLandmarks}
-                      />
-                      <p className="text-[11px] font-medium text-[#3f3f3c]">
-                        Front · Eye distance, facial thirds, cheekbone &amp; lip endpoints
-                      </p>
-                    </div>
-                  ) : (
-                    <img
-                      src={frontPhoto.dataUrl}
-                      alt="Submitted front portrait"
-                      className="w-full rounded-[22px] border border-[#0a0a0a]/20 object-cover"
-                    />
-                  )}
-
-                  {sidePhoto && analysis.faceDetected && analysis.sideLandmarks ? (
-                    <div className="space-y-2">
-                      <SideLandmarkOverlay
-                        photo={sidePhoto}
-                        landmarks={analysis.sideLandmarks}
-                        showLandmarks={showLandmarks}
-                      />
-                      <p className="text-[11px] font-medium text-[#3f3f3c]">
-                        Side Profile · Gonial plane &amp; cervical neck alignment
-                      </p>
-                    </div>
-                  ) : sidePhoto ? (
-                    <img
-                      src={sidePhoto.dataUrl}
-                      alt="Submitted side portrait"
-                      className="w-full rounded-[22px] border border-[#0a0a0a]/20 object-cover"
-                    />
-                  ) : null}
-                </div>
-
-                {/* Measured Proportions Bar right below the landmark map */}
-                {analysis.faceDetected && analysis.proportions && (
-                  <div className="grid gap-3 sm:grid-cols-4 rounded-2xl border border-[#0a0a0a]/12 bg-[#dadad7]/65 p-4 text-xs">
-                    <div>
-                      <span className="block text-[11px] text-[#585854]">
-                        Facial Thirds (U / M / L)
-                      </span>
-                      <span className="mt-0.5 block font-semibold text-[#0a0a0a] tabular-nums">
-                        {Math.round(analysis.proportions.upperThirdPct)}% ·{' '}
-                        {Math.round(analysis.proportions.middleThirdPct)}% ·{' '}
-                        {Math.round(analysis.proportions.lowerThirdPct)}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[11px] text-[#585854]">
-                        Left–Right Eye Span
-                      </span>
-                      <span className="mt-0.5 block font-semibold text-[#0a0a0a] tabular-nums">
-                        {analysis.proportions.eyeToFaceRatio}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[11px] text-[#585854]">
-                        Lip-to-Nose Width
-                      </span>
-                      <span className="mt-0.5 block font-semibold text-[#0a0a0a] tabular-nums">
-                        {analysis.proportions.lipToNoseRatio}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[11px] text-[#585854]">
-                        Gonial Jaw Angle
-                      </span>
-                      <span className="mt-0.5 block font-semibold text-[#0a0a0a] tabular-nums">
-                        {analysis.proportions.gonialAngleEstimate}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 2. PSL SCORE & SUMMARY */}
-            <div className="flex flex-col gap-6 border-y border-[#0a0a0a]/12 py-6 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-[11px] font-medium tracking-[0.12em] text-[#3f3f3c]">
-                  {analysis.faceShape} · {analysis.pslTier}
-                </p>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span className="pomelli-display text-5xl sm:text-6xl text-[#0a0a0a] tabular-nums">
-                    {analysis.faceDetected ? analysis.overallRating.toFixed(1) : '—'}
-                  </span>
-                  {analysis.faceDetected && (
-                    <span className="text-sm font-medium text-[#3f3f3c] tabular-nums">
-                      / 10.0
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#0a0a0a]/85">
-                  {analysis.summary}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => void openCamera('front')}
-                  className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-xs sm:text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Scan Again</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="rounded-full border border-[#0a0a0a]/20 px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#dadad7] transition-colors whitespace-nowrap"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            {analysis.faceDetected && (
-              <>
-                {/* 3. POSTURE RATING ROW */}
-                {analysis.postureRating && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.45, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
-                    className="rounded-2xl border border-[#0a0a0a]/14 bg-[#dadad7]/80 p-4 sm:p-5"
-                  >
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="text-xs font-semibold text-[#0a0a0a]">
-                        Posture &amp; Neck Alignment · {analysis.postureRating.neckAlignment}
-                      </span>
-                      <span className="text-base font-semibold text-[#0a0a0a] tabular-nums">
-                        {analysis.postureRating.score.toFixed(1)} / 10
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-[#3f3f3c]">
-                      {analysis.postureRating.observation}
-                    </p>
-                  </motion.div>
-                )}
-
-                {/* 4. PSL FEATURE BREAKDOWN */}
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {analysis.subScores.map((item, idx) => (
-                    <motion.div
-                      key={item.label}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: 0.45,
-                        delay: 0.12 + idx * 0.05,
-                        ease: [0.16, 1, 0.3, 1],
-                      }}
-                      className="rounded-2xl border border-[#0a0a0a]/12 bg-[#dadad7]/70 p-4"
-                    >
-                      <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-xs font-semibold text-[#0a0a0a]">
-                          {item.label}
-                        </h3>
-                        <span className="text-base font-semibold text-[#0a0a0a] tabular-nums">
-                          {item.score.toFixed(1)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs leading-relaxed text-[#3f3f3c]">
-                        {item.observation}
-                      </p>
-                    </motion.div>
-                  ))}
-                </div>
-
-                {/* 5. TAILORED PROTOCOL */}
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.45, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                >
-                  <h3 className="text-xs font-medium tracking-[0.12em] text-[#3f3f3c] mb-3">
-                    TAILORED IMPROVEMENT PROTOCOL
-                  </h3>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {analysis.protocolSteps.map((step, index) => (
-                      <div
-                        key={step.area}
-                        className="rounded-2xl border border-[#0a0a0a]/12 bg-[#dadad7]/45 p-4"
-                      >
-                        <div className="flex items-center justify-between gap-2 text-xs text-[#3f3f3c]">
-                          <span className="font-semibold text-[#0a0a0a]">
-                            0{index + 1}. {step.area}
-                          </span>
-                          <span className="text-[11px] font-medium">{step.impact}</span>
-                        </div>
-                        <p className="mt-1.5 text-sm leading-relaxed text-[#0a0a0a]/85">
-                          {step.action}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-              </>
-            )}
-          </motion.div>
         )}
       </div>
     </section>
