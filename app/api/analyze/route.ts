@@ -107,145 +107,198 @@ If no clear human face is visible in Image 1, set faceDetected to false and expl
       : `Analyze Image 1 (front portrait) for facial landmarks (0-1000 coordinates), proportions, PSL rating, and 5 subScores. If no clear face is visible, set faceDetected to false.`,
   });
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: { parts },
-      config: {
-        systemInstruction:
-          'You are a precision facial landmark & PSL aesthetics analyst for Dark Triad, calibrated for South Asian / Indian facial proportions. Always pinpoint accurate 0-1000 normalized coordinates for every visible facial landmark so measurement lines align directly onto the user portrait.',
-        responseMimeType: 'application/json',
-        responseSchema: {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const isTransientError = (err: unknown): boolean => {
+    const raw = err instanceof Error ? err.message : String(err);
+    return /503|429|500|502|504|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded|temporarily|timeout|ECONNRESET/i.test(
+      raw,
+    );
+  };
+
+  const extractReadableError = (err: unknown): string => {
+    const raw = err instanceof Error ? err.message : 'Unable to complete facial analysis.';
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsedErr = JSON.parse(jsonMatch[0]) as { error?: { message?: string; code?: number } };
+        if (parsedErr?.error?.message) {
+          return parsedErr.error.message;
+        }
+      }
+    } catch {
+      // Ignore JSON parse fallback
+    }
+    return raw;
+  };
+
+  const requestConfig = {
+    systemInstruction:
+      'You are a precision facial landmark & PSL aesthetics analyst for Dark Triad, calibrated for South Asian / Indian facial proportions. Always pinpoint accurate 0-1000 normalized coordinates for every visible facial landmark so measurement lines align directly onto the user portrait.',
+    responseMimeType: 'application/json',
+    responseSchema: {
+      type: Type.OBJECT,
+      properties: {
+        faceDetected: { type: Type.BOOLEAN },
+        overallRating: { type: Type.NUMBER },
+        pslTier: { type: Type.STRING },
+        faceShape: { type: Type.STRING },
+        proportions: {
           type: Type.OBJECT,
           properties: {
-            faceDetected: { type: Type.BOOLEAN },
-            overallRating: { type: Type.NUMBER },
-            pslTier: { type: Type.STRING },
-            faceShape: { type: Type.STRING },
-            proportions: {
-              type: Type.OBJECT,
-              properties: {
-                upperThirdPct: { type: Type.NUMBER },
-                middleThirdPct: { type: Type.NUMBER },
-                lowerThirdPct: { type: Type.NUMBER },
-                eyeToFaceRatio: { type: Type.STRING },
-                lipToNoseRatio: { type: Type.STRING },
-                gonialAngleEstimate: { type: Type.STRING },
-              },
-              required: [
-                'upperThirdPct',
-                'middleThirdPct',
-                'lowerThirdPct',
-                'eyeToFaceRatio',
-                'lipToNoseRatio',
-                'gonialAngleEstimate',
-              ],
-            },
-            frontLandmarks: {
-              type: Type.OBJECT,
-              properties: {
-                hairlineTop: pointSchema,
-                browMid: pointSchema,
-                noseBase: pointSchema,
-                chinBottom: pointSchema,
-                leftEyeOuter: pointSchema,
-                leftPupil: pointSchema,
-                rightPupil: pointSchema,
-                rightEyeOuter: pointSchema,
-                cheekLeft: pointSchema,
-                cheekRight: pointSchema,
-                mouthLeft: pointSchema,
-                mouthRight: pointSchema,
-                jawLeft: pointSchema,
-                jawRight: pointSchema,
-              },
-              required: [
-                'hairlineTop',
-                'browMid',
-                'noseBase',
-                'chinBottom',
-                'leftEyeOuter',
-                'leftPupil',
-                'rightPupil',
-                'rightEyeOuter',
-                'cheekLeft',
-                'cheekRight',
-                'mouthLeft',
-                'mouthRight',
-                'jawLeft',
-                'jawRight',
-              ],
-            },
-            sideLandmarks: {
-              type: Type.OBJECT,
-              properties: {
-                earTragus: pointSchema,
-                gonialCorner: pointSchema,
-                chinTip: pointSchema,
-                neckBase: pointSchema,
-              },
-              required: ['earTragus', 'gonialCorner', 'chinTip', 'neckBase'],
-            },
-            postureRating: {
-              type: Type.OBJECT,
-              properties: {
-                score: { type: Type.NUMBER },
-                neckAlignment: { type: Type.STRING },
-                observation: { type: Type.STRING },
-              },
-              required: ['score', 'neckAlignment', 'observation'],
-            },
-            summary: { type: Type.STRING },
-            subScores: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  label: { type: Type.STRING },
-                  score: { type: Type.NUMBER },
-                  observation: { type: Type.STRING },
-                },
-                required: ['label', 'score', 'observation'],
-              },
-            },
-            protocolSteps: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  area: { type: Type.STRING },
-                  action: { type: Type.STRING },
-                  impact: { type: Type.STRING },
-                },
-                required: ['area', 'action', 'impact'],
-              },
-            },
+            upperThirdPct: { type: Type.NUMBER },
+            middleThirdPct: { type: Type.NUMBER },
+            lowerThirdPct: { type: Type.NUMBER },
+            eyeToFaceRatio: { type: Type.STRING },
+            lipToNoseRatio: { type: Type.STRING },
+            gonialAngleEstimate: { type: Type.STRING },
           },
           required: [
-            'faceDetected',
-            'overallRating',
-            'pslTier',
-            'faceShape',
-            'proportions',
-            'frontLandmarks',
-            'sideLandmarks',
-            'postureRating',
-            'summary',
-            'subScores',
-            'protocolSteps',
+            'upperThirdPct',
+            'middleThirdPct',
+            'lowerThirdPct',
+            'eyeToFaceRatio',
+            'lipToNoseRatio',
+            'gonialAngleEstimate',
           ],
         },
+        frontLandmarks: {
+          type: Type.OBJECT,
+          properties: {
+            hairlineTop: pointSchema,
+            browMid: pointSchema,
+            noseBase: pointSchema,
+            chinBottom: pointSchema,
+            leftEyeOuter: pointSchema,
+            leftPupil: pointSchema,
+            rightPupil: pointSchema,
+            rightEyeOuter: pointSchema,
+            cheekLeft: pointSchema,
+            cheekRight: pointSchema,
+            mouthLeft: pointSchema,
+            mouthRight: pointSchema,
+            jawLeft: pointSchema,
+            jawRight: pointSchema,
+          },
+          required: [
+            'hairlineTop',
+            'browMid',
+            'noseBase',
+            'chinBottom',
+            'leftEyeOuter',
+            'leftPupil',
+            'rightPupil',
+            'rightEyeOuter',
+            'cheekLeft',
+            'cheekRight',
+            'mouthLeft',
+            'mouthRight',
+            'jawLeft',
+            'jawRight',
+          ],
+        },
+        sideLandmarks: {
+          type: Type.OBJECT,
+          properties: {
+            earTragus: pointSchema,
+            gonialCorner: pointSchema,
+            chinTip: pointSchema,
+            neckBase: pointSchema,
+          },
+          required: ['earTragus', 'gonialCorner', 'chinTip', 'neckBase'],
+        },
+        postureRating: {
+          type: Type.OBJECT,
+          properties: {
+            score: { type: Type.NUMBER },
+            neckAlignment: { type: Type.STRING },
+            observation: { type: Type.STRING },
+          },
+          required: ['score', 'neckAlignment', 'observation'],
+        },
+        summary: { type: Type.STRING },
+        subScores: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              label: { type: Type.STRING },
+              score: { type: Type.NUMBER },
+              observation: { type: Type.STRING },
+            },
+            required: ['label', 'score', 'observation'],
+          },
+        },
+        protocolSteps: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              area: { type: Type.STRING },
+              action: { type: Type.STRING },
+              impact: { type: Type.STRING },
+            },
+            required: ['area', 'action', 'impact'],
+          },
+        },
       },
-    });
+      required: [
+        'faceDetected',
+        'overallRating',
+        'pslTier',
+        'faceShape',
+        'proportions',
+        'frontLandmarks',
+        'sideLandmarks',
+        'postureRating',
+        'summary',
+        'subScores',
+        'protocolSteps',
+      ],
+    },
+  };
 
-    const parsed = JSON.parse((response.text ?? '{}').trim());
-    return NextResponse.json(parsed);
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unable to complete facial analysis.';
-    return NextResponse.json(
-      { error: `Analysis failed: ${message}` },
-      { status: 500 },
-    );
+  // Free-tier cascade: retry primary model with backoff, then fail over to Flash-Lite
+  const attempts: Array<{ model: string; delayBeforeMs: number }> = [
+    { model: 'gemini-4-hydrogen', delayBeforeMs: 0 },
+    { model: 'gemini-4-hydrogen', delayBeforeMs: 900 },
+    { model: 'gemini-3.1-flash-lite', delayBeforeMs: 1200 },
+    { model: 'gemini-3.1-flash-lite', delayBeforeMs: 1800 },
+  ];
+
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    if (attempt.delayBeforeMs > 0) {
+      await sleep(attempt.delayBeforeMs);
+    }
+
+    try {
+      const response = await ai.models.generateContent({
+        model: attempt.model,
+        contents: { parts },
+        config: requestConfig,
+      });
+
+      const parsed = JSON.parse((response.text ?? '{}').trim());
+      return NextResponse.json(parsed);
+    } catch (err) {
+      lastError = err;
+      if (!isTransientError(err)) {
+        break;
+      }
+    }
   }
+
+  const readable = extractReadableError(lastError);
+  const status = isTransientError(lastError) ? 503 : 500;
+  return NextResponse.json(
+    {
+      error:
+        status === 503
+          ? 'Servers are temporarily busy right now. Please tap Retry Analysis in a few seconds.'
+          : `Analysis failed: ${readable}`,
+    },
+    { status },
+  );
 }

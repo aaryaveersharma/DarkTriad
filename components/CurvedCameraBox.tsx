@@ -6,6 +6,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  Loader2,
   RefreshCw,
   Upload,
   X,
@@ -871,34 +872,65 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
           </div>
         )}
 
-        {/* ANALYZING STATE */}
+        {/* ANALYZING STATE WITH ACTIVE LOADING INDICATOR */}
         {mode === 'analyzing' && (
-          <div className="flex min-h-[360px] flex-col items-center justify-center gap-6 py-6 text-center">
+          <div className="flex min-h-[380px] flex-col items-center justify-center gap-6 py-6 text-center">
             <div className="flex items-center justify-center gap-4">
               {frontPhoto && (
-                <div className="relative h-32 w-32 sm:h-40 sm:w-40 overflow-hidden rounded-[24px] border border-[#0a0a0a]/20 bg-[#141414]">
+                <div className="relative h-36 w-32 sm:h-44 sm:w-36 overflow-hidden rounded-[22px] border border-[#0a0a0a]/25 bg-[#141414]">
                   <img
                     src={frontPhoto.dataUrl}
                     alt="Front facial scan frame"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover opacity-80"
+                  />
+                  <motion.div
+                    aria-hidden="true"
+                    initial={{ top: '0%' }}
+                    animate={{ top: ['0%', '92%', '0%'] }}
+                    transition={{ duration: 2.1, repeat: Infinity, ease: 'easeInOut' }}
+                    className="pointer-events-none absolute inset-x-0 h-0.5 bg-white shadow-[0_0_10px_2px_rgba(255,255,255,0.85)]"
                   />
                 </div>
               )}
               {sidePhoto && (
-                <div className="relative h-32 w-32 sm:h-40 sm:w-40 overflow-hidden rounded-[24px] border border-[#0a0a0a]/20 bg-[#141414]">
+                <div className="relative h-36 w-32 sm:h-44 sm:w-36 overflow-hidden rounded-[22px] border border-[#0a0a0a]/25 bg-[#141414]">
                   <img
                     src={sidePhoto.dataUrl}
                     alt="Side profile and neck scan frame"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover opacity-80"
+                  />
+                  <motion.div
+                    aria-hidden="true"
+                    initial={{ top: '92%' }}
+                    animate={{ top: ['92%', '0%', '92%'] }}
+                    transition={{ duration: 2.1, repeat: Infinity, ease: 'easeInOut' }}
+                    className="pointer-events-none absolute inset-x-0 h-0.5 bg-white shadow-[0_0_10px_2px_rgba(255,255,255,0.85)]"
                   />
                 </div>
               )}
             </div>
-            <div className="space-y-2">
+
+            <div className="w-full max-w-sm space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
+                <span>Analyzing facial structure...</span>
+              </div>
+
               <p className="pomelli-display text-3xl sm:text-4xl text-[#0a0a0a]">
                 Mapping facial landmarks
               </p>
-              <p className="text-xs font-medium tracking-[0.1em] text-[#3f3f3c]">
+
+              {/* Smooth animated loading track */}
+              <div className="relative mx-auto h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-[#0a0a0a]/12">
+                <motion.div
+                  initial={{ x: '-100%' }}
+                  animate={{ x: ['-100%', '220%'] }}
+                  transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+                  className="h-full w-1/2 rounded-full bg-[#0a0a0a]"
+                />
+              </div>
+
+              <p className="text-[11px] font-medium tracking-[0.1em] text-[#3f3f3c]">
                 MEASURING EYE SPAN · FACIAL THIRDS · LIP WIDTH · CERVICAL POSTURE
               </p>
             </div>
@@ -915,14 +947,29 @@ export function CurvedCameraBox({ externalTriggerCount }: CurvedCameraBoxProps) 
               {errorMessage}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
+              {frontPhoto && sidePhoto ? (
+                <button
+                  type="button"
+                  onClick={() => void runAnalysis(frontPhoto, sidePhoto)}
+                  className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Retry Analysis</span>
+                </button>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => void openCamera('front')}
-                className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
+                className={`${
+                  frontPhoto && sidePhoto
+                    ? 'rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc]'
+                    : 'tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-[#f3f3f1]'
+                } whitespace-nowrap`}
               >
-                <RefreshCw className="h-4 w-4" />
-                <span>Try Again</span>
+                <span>{frontPhoto && sidePhoto ? 'Re-upload Photos' : 'Try Again'}</span>
               </button>
+
               <button
                 type="button"
                 onClick={handleReset}
