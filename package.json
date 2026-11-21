@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
+    "@mediapipe/tasks-vision": "^1.2.3",
     "@supabase/supabase-js": "^2.119.2",
     "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/vite": "^4.3.3",

@@ -40,7 +40,6 @@ import {
 interface ChatLaunchConfig {
   mode: ChatMode;
   prompt?: string;
-  autoTriggerHairstylePreview?: boolean;
 }
 
 export default function HomePage() {
@@ -361,11 +360,6 @@ export default function HomePage() {
         }}
         session={session}
         scanCount={analyses.length}
-        onBackToLanding={() => {
-          setIsUpdatingSelfie(false);
-          setActiveView('landing');
-        }}
-        onLogout={() => void handleLogout()}
       >
         {activeView === 'results' && (
           <ResultsView
@@ -420,7 +414,6 @@ export default function HomePage() {
             dailyProgress={dailyProgress}
             initialMode={chatLaunchConfig?.mode}
             initialPrompt={chatLaunchConfig?.prompt}
-            autoTriggerHairstylePreview={chatLaunchConfig?.autoTriggerHairstylePreview}
             onConsumedLaunchTrigger={() => setChatLaunchConfig(null)}
           />
         )}
@@ -438,10 +431,9 @@ export default function HomePage() {
           <ImprovementStepperView
             record={selectedRecord}
             onStartScan={handleUpdateSelfie}
-            onAskHairstylePreview={() => {
+            onDiscussPlanInAI={() => {
               setChatLaunchConfig({
-                mode: 'HAIRSTYLE',
-                autoTriggerHairstylePreview: true,
+                mode: 'GENERAL',
               });
               setActiveView('chatbot');
               window.scrollTo({ top: 0, behavior: 'smooth' });

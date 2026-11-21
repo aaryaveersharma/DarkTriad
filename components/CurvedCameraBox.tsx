@@ -14,6 +14,10 @@ import {
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PSLAnalysisResult, StoredPhoto, UserProfile } from '@/lib/types';
+import {
+  detectFrontFaceLandmarks,
+  FrontVisionResult,
+} from '@/lib/vision/faceLandmarker';
 import { FaceAvatarsCluster } from './TriadEmblems';
 import {
   FrontMeasurementOverlay,
@@ -22,6 +26,13 @@ import {
 
 type BoxMode = 'idle' | 'requesting' | 'camera' | 'analyzing' | 'error';
 type CaptureSlot = 'front' | 'side';
+
+const validationCache = new Map<string, { valid: boolean; message?: string }>();
+const analyzePromiseCache = new Map<string, Promise<PSLAnalysisResult>>();
+
+function photoSig(dataUrl: string): string {
+  return `${dataUrl.length}:${dataUrl.slice(0, 48)}:${dataUrl.slice(-36)}`;
+}
 
 interface CurvedCameraBoxProps {
   externalTriggerCount: number;
@@ -36,29 +47,19 @@ interface CurvedCameraBoxProps {
   ) => void;
 }
 
-const MAPPING_STAGE_LABELS: Record<number, string> = {
-  0: 'SCANNING OPTICS & ALIGNING ANATOMICAL REFERENCE FRAME...',
-  1: 'TRACING FOREHEAD, CHEEK, JAW & CHIN FACIAL BOUNDARY OUTLINES...',
-  2: 'MEASURING OUTER EYE CORNER TO OUTER EYE CORNER SPAN...',
-  3: 'CALCULATING HAIRLINE-TO-CHIN HEIGHT & FACIAL THIRDS...',
-  4: 'MAPPING BIZYGOMATIC CHEEKBONE, JAW & CHIN WIDTHS...',
-  5: 'TRACING NASAL BRIDGE, PROJECTION, GONIAL ANGLE & CERVICAL NECK LINE...',
-  6: 'FACIAL MAPPING COMPLETE — OPENING YOUR RATINGS...',
-};
-
 function compressFileToJpeg(file: File): Promise<StoredPhoto> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const maxDim = 768;
+      const maxDim = 640;
       const scale = Math.min(
         1,
         maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1),
       );
-      const width = Math.max(1, Math.round((img.naturalWidth || 720) * scale));
-      const height = Math.max(1, Math.round((img.naturalHeight || 960) * scale));
+      const width = Math.max(1, Math.round((img.naturalWidth || 640) * scale));
+      const height = Math.max(1, Math.round((img.naturalHeight || 853) * scale));
 
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -70,7 +71,7 @@ function compressFileToJpeg(file: File): Promise<StoredPhoto> {
       }
       ctx.drawImage(img, 0, 0, width, height);
       resolve({
-        dataUrl: canvas.toDataURL('image/jpeg', 0.8),
+        dataUrl: canvas.toDataURL('image/jpeg', 0.78),
         width,
         height,
       });
@@ -103,11 +104,9 @@ export function CurvedCameraBox({
 
   const [frontPhoto, setFrontPhoto] = useState<StoredPhoto | null>(null);
   const [sidePhoto, setSidePhoto] = useState<StoredPhoto | null>(null);
+  const [frontVision, setFrontVision] = useState<FrontVisionResult | null>(null);
   const [validatingSlot, setValidatingSlot] = useState<CaptureSlot | null>(null);
   const [slotErrors, setSlotErrors] = useState<{ front?: string; side?: string }>({});
-
-  const [pendingResult, setPendingResult] = useState<PSLAnalysisResult | null>(null);
-  const [revealStage, setRevealStage] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -194,10 +193,9 @@ export function CurvedCameraBox({
       if (!preserveExisting) {
         setFrontPhoto(null);
         setSidePhoto(null);
+        setFrontVision(null);
         setSlotErrors({});
       }
-      setPendingResult(null);
-      setRevealStage(0);
       setActiveSlot(slot);
       stopCameraStream();
 
@@ -242,9 +240,8 @@ export function CurvedCameraBox({
     );
     setFrontPhoto(null);
     setSidePhoto(null);
+    setFrontVision(null);
     setSlotErrors({});
-    setPendingResult(null);
-    setRevealStage(0);
     setActiveSlot('front');
     setLiveFeedActive(false);
     setMode('camera');
@@ -257,53 +254,154 @@ export function CurvedCameraBox({
     }
   }, [externalTriggerCount, openCamera]);
 
+  const fetchAnalysisWithCache = useCallback(
+    (
+      front: StoredPhoto,
+      side: StoredPhoto,
+      visionOverride?: FrontVisionResult | null,
+    ): Promise<PSLAnalysisResult> => {
+      const pairKey = `${photoSig(front.dataUrl)}__${photoSig(side.dataUrl)}__${profile?.age ?? ''}__${profile?.gender ?? ''}__${profile?.fitnessGoals ?? ''}`;
+      const existingPromise = analyzePromiseCache.get(pairKey);
+      if (existingPromise) {
+        return existingPromise;
+      }
+
+      const promise = (async () => {
+        const vision =
+          visionOverride ?? frontVision ?? (await detectFrontFaceLandmarks(front.dataUrl));
+
+        const controller = new AbortController();
+        const requestTimeout = window.setTimeout(() => controller.abort(), 35000);
+
+        try {
+          const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              frontImageBase64: front.dataUrl,
+              frontMimeType: 'image/jpeg',
+              sideImageBase64: side.dataUrl,
+              sideMimeType: 'image/jpeg',
+              profile: profile ?? null,
+              previousAnalysisSummary: previousAnalysisSummary ?? null,
+              detectedFrontLandmarks: vision?.landmarks ?? null,
+              detectedProportions: vision?.proportions ?? null,
+            }),
+          });
+
+          const raw = await response.text();
+          let payload: (PSLAnalysisResult & { error?: string }) | null = null;
+          try {
+            payload = JSON.parse(raw) as PSLAnalysisResult & { error?: string };
+          } catch {
+            throw new Error(
+              'Analysis timed out or returned invalid data. Please tap Retry Analysis.',
+            );
+          }
+
+          if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Unable to analyze portraits.');
+          }
+
+          if (!payload.faceDetected) {
+            throw new Error(
+              payload.imageQualityWarning ||
+                'No clear human face detected across both portraits. Please retake with better lighting.',
+            );
+          }
+
+          return payload;
+        } finally {
+          window.clearTimeout(requestTimeout);
+        }
+      })().catch((err) => {
+        analyzePromiseCache.delete(pairKey);
+        throw err;
+      });
+
+      if (analyzePromiseCache.size >= 12) {
+        const first = analyzePromiseCache.keys().next().value;
+        if (first) analyzePromiseCache.delete(first);
+      }
+      analyzePromiseCache.set(pairKey, promise);
+      return promise;
+    },
+    [frontVision, previousAnalysisSummary, profile],
+  );
+
+  // Immediately begin analysis in background as soon as BOTH photos pass validation
+  useEffect(() => {
+    if (frontPhoto && sidePhoto && !validatingSlot) {
+      void fetchAnalysisWithCache(frontPhoto, sidePhoto, frontVision).catch(() => {
+        // Error handled cleanly if user triggers runAnalysis
+      });
+    }
+  }, [frontPhoto, sidePhoto, validatingSlot, frontVision, fetchAnalysisWithCache]);
+
   const validateAndAssignPhoto = useCallback(
     async (slot: CaptureSlot, photo: StoredPhoto) => {
       setValidatingSlot(slot);
       setSlotErrors((prev) => ({ ...prev, [slot]: undefined }));
       setErrorMessage('');
 
+      const cacheKey = `${slot}::${photoSig(photo.dataUrl)}`;
+
       try {
-        const res = await fetch('/api/validate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: photo.dataUrl,
-            mimeType: 'image/jpeg',
-            expectedProfile: slot,
-          }),
-        });
+        // Run validation + MediaPipe front landmark detection in parallel (no redundant waiting)
+        const cachedValidation = validationCache.get(cacheKey);
+        const [validationPayload, visionRes] = await Promise.all([
+          cachedValidation
+            ? Promise.resolve(cachedValidation)
+            : (async () => {
+                const res = await fetch('/api/validate-image', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    imageBase64: photo.dataUrl,
+                    mimeType: 'image/jpeg',
+                    expectedProfile: slot,
+                  }),
+                });
+                const raw = await res.text();
+                let payload: { valid?: boolean; message?: string; error?: string } = {};
+                try {
+                  payload = JSON.parse(raw) as typeof payload;
+                } catch {
+                  throw new Error('Validation server returned an unexpected response.');
+                }
+                if (!res.ok || payload.error) {
+                  throw new Error(
+                    payload.error || 'Could not validate photo. Please try again.',
+                  );
+                }
+                const out = { valid: Boolean(payload.valid), message: payload.message };
+                validationCache.set(cacheKey, out);
+                return out;
+              })(),
+          slot === 'front' ? detectFrontFaceLandmarks(photo.dataUrl) : Promise.resolve(null),
+        ]);
 
-        const raw = await res.text();
-        let payload: { valid?: boolean; message?: string; error?: string } = {};
-        try {
-          payload = JSON.parse(raw) as typeof payload;
-        } catch {
-          throw new Error('Validation server returned an unexpected response.');
-        }
-
-        if (!res.ok || payload.error) {
-          throw new Error(
-            payload.error || 'Could not validate photo. Please try again.',
-          );
-        }
-
-        if (!payload.valid) {
+        if (!validationPayload.valid) {
           const fallbackMsg =
             slot === 'front'
               ? 'Invalid Image. Please upload a clear front-facing photograph.'
               : 'Incorrect Profile. Please upload a genuine side-profile photograph.';
           setSlotErrors((prev) => ({
             ...prev,
-            [slot]: payload.message || fallbackMsg,
+            [slot]: validationPayload.message || fallbackMsg,
           }));
-          if (slot === 'front') setFrontPhoto(null);
+          if (slot === 'front') {
+            setFrontPhoto(null);
+            setFrontVision(null);
+          }
           if (slot === 'side') setSidePhoto(null);
           return;
         }
 
         if (slot === 'front') {
           setFrontPhoto(photo);
+          setFrontVision(visionRes);
           setActiveSlot('side');
         } else {
           setSidePhoto(photo);
@@ -329,64 +427,10 @@ export function CurvedCameraBox({
       stopCameraStream();
       setMode('analyzing');
       setErrorMessage('');
-      setPendingResult(null);
-      setRevealStage(0);
-
-      const controller = new AbortController();
-      const requestTimeout = window.setTimeout(() => controller.abort(), 36000);
 
       try {
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            frontImageBase64: front.dataUrl,
-            frontMimeType: 'image/jpeg',
-            sideImageBase64: side.dataUrl,
-            sideMimeType: 'image/jpeg',
-            profile: profile ?? null,
-            previousAnalysisSummary: previousAnalysisSummary ?? null,
-          }),
-        });
-
-        const raw = await response.text();
-        let payload: (PSLAnalysisResult & { error?: string }) | null = null;
-        try {
-          payload = JSON.parse(raw) as PSLAnalysisResult & { error?: string };
-        } catch {
-          throw new Error(
-            'Analysis timed out or returned invalid data. Please tap Retry Analysis.',
-          );
-        }
-
-        if (!response.ok || payload.error) {
-          throw new Error(payload.error || 'Unable to analyze portraits.');
-        }
-
-        if (!payload.faceDetected) {
-          throw new Error(
-            payload.imageQualityWarning ||
-              'No clear human face detected across both portraits. Please retake with better lighting.',
-          );
-        }
-
-        // Fast, smooth real-time progressive facial mapping reveal (~1.6s)
-        setPendingResult(payload);
-        setRevealStage(1);
-
-        const delays = [240, 500, 760, 1020, 1300, 1600];
-        delays.forEach((ms, index) => {
-          const t = window.setTimeout(() => {
-            const stage = index + 2;
-            if (stage <= 6) {
-              setRevealStage(stage);
-            } else {
-              onAnalysisCompleteRef.current(front, side, payload);
-            }
-          }, ms);
-          mappingTimersRef.current.push(t);
-        });
+        const result = await fetchAnalysisWithCache(front, side, frontVision);
+        onAnalysisCompleteRef.current(front, side, result);
       } catch (err) {
         clearMappingTimers();
         const isAbort = err instanceof Error && err.name === 'AbortError';
@@ -398,16 +442,9 @@ export function CurvedCameraBox({
               : 'Unable to analyze portraits.',
         );
         setMode('error');
-      } finally {
-        window.clearTimeout(requestTimeout);
       }
     },
-    [
-      clearMappingTimers,
-      previousAnalysisSummary,
-      profile,
-      stopCameraStream,
-    ],
+    [clearMappingTimers, fetchAnalysisWithCache, frontVision, stopCameraStream],
   );
 
   const captureFrameFromVideo = () => {
@@ -416,7 +453,7 @@ export function CurvedCameraBox({
 
     const rawW = video.videoWidth || 960;
     const rawH = video.videoHeight || 720;
-    const scale = Math.min(1, 768 / Math.max(rawW, rawH));
+    const scale = Math.min(1, 640 / Math.max(rawW, rawH));
     const width = Math.round(rawW * scale);
     const height = Math.round(rawH * scale);
 
@@ -431,7 +468,7 @@ export function CurvedCameraBox({
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, width, height);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
     void validateAndAssignPhoto(activeSlot, { dataUrl, width, height });
   };
 
@@ -460,11 +497,10 @@ export function CurvedCameraBox({
     stopCameraStream();
     setFrontPhoto(null);
     setSidePhoto(null);
+    setFrontVision(null);
     setSlotErrors({});
     setCameraNotice('');
     setErrorMessage('');
-    setPendingResult(null);
-    setRevealStage(0);
     setActiveSlot('front');
     if (isUpdatingSelfie && onCancelUpdate) {
       onCancelUpdate();
@@ -937,88 +973,41 @@ export function CurvedCameraBox({
           </div>
         )}
 
-        {/* REAL-TIME PROGRESSIVE FACIAL MAPPING ANIMATION (ALWAYS SIDE-BY-SIDE) */}
+        {/* FACIAL STRUCTURE ANALYSIS LOADING STATE (ALWAYS SIDE-BY-SIDE, ZERO MOVING SCAN LINES) */}
         {mode === 'analyzing' && frontPhoto && sidePhoto && (
           <div className="flex flex-col items-center justify-center gap-5 py-4 text-center">
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
-                {revealStage >= 6 ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-emerald-700" />
-                    <span>FACIAL MAPPING COMPLETE</span>
-                  </>
-                ) : (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                    <span>ANALYZING FACIAL GEOMETRY</span>
-                  </>
-                )}
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
+                <span>FINALIZING STRUCTURAL RATINGS</span>
               </div>
 
               <h2 className="pomelli-display text-2xl sm:text-4xl text-[#0a0a0a]">
-                MAPPING OUT YOUR FACIAL STRUCTURE
+                MAPPING YOUR FACIAL GEOMETRY
               </h2>
             </div>
 
             {/* Strictly side-by-side (grid-cols-2) on mobile AND desktop */}
             <div className="grid w-full max-w-3xl grid-cols-2 gap-2.5 sm:gap-5 items-start">
-              <div className="relative">
-                <FrontMeasurementOverlay
-                  photo={frontPhoto}
-                  landmarks={pendingResult?.frontLandmarks ?? null}
-                  showLines={Boolean(pendingResult)}
-                  revealStage={revealStage}
-                  animateLines
-                  darkTheme={false}
-                />
-                {!pendingResult && (
-                  <motion.div
-                    aria-hidden="true"
-                    initial={{ top: '4%' }}
-                    animate={{ top: ['4%', '92%', '4%'] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                    className="pointer-events-none absolute inset-x-2 h-0.5 bg-white shadow-[0_0_12px_2px_rgba(255,255,255,0.9)]"
-                  />
-                )}
-              </div>
+              <FrontMeasurementOverlay
+                photo={frontPhoto}
+                landmarks={frontVision?.landmarks ?? null}
+                showLines={Boolean(frontVision?.landmarks)}
+                revealStage={4}
+                darkTheme={false}
+              />
 
-              <div className="relative">
-                <SideMeasurementOverlay
-                  photo={sidePhoto}
-                  landmarks={pendingResult?.sideLandmarks ?? null}
-                  showLines={Boolean(pendingResult)}
-                  revealStage={revealStage}
-                  animateLines
-                  darkTheme={false}
-                />
-                {!pendingResult && (
-                  <motion.div
-                    aria-hidden="true"
-                    initial={{ top: '92%' }}
-                    animate={{ top: ['92%', '4%', '92%'] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                    className="pointer-events-none absolute inset-x-2 h-0.5 bg-white shadow-[0_0_12px_2px_rgba(255,255,255,0.9)]"
-                  />
-                )}
-              </div>
+              <SideMeasurementOverlay
+                photo={sidePhoto}
+                landmarks={null}
+                showLines={false}
+                darkTheme={false}
+              />
             </div>
 
-            <div className="w-full max-w-md space-y-2">
-              <div className="relative mx-auto h-1.5 w-full overflow-hidden rounded-full bg-[#0a0a0a]/12">
-                <motion.div
-                  initial={{ width: '16%' }}
-                  animate={{
-                    width: `${Math.min(100, Math.max(20, revealStage * 16 + 4))}%`,
-                  }}
-                  transition={{ duration: 0.35, ease: 'easeOut' }}
-                  className="h-full rounded-full bg-[#0a0a0a]"
-                />
-              </div>
-
-              <p className="text-[10px] sm:text-[11px] font-medium tracking-[0.08em] text-[#3f3f3c]">
-                {MAPPING_STAGE_LABELS[revealStage] ?? MAPPING_STAGE_LABELS[0]}
-              </p>
-            </div>
+            <p className="text-[11px] font-medium tracking-[0.06em] text-[#3f3f3c]">
+              Computing proportional ratios, skin assessment, and improvement plan...
+            </p>
           </div>
         )}
 

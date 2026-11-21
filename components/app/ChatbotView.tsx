@@ -6,11 +6,10 @@ import {
   ChevronDown,
   Loader2,
   Paperclip,
-  Scissors,
   Sparkles,
-  Trash2,
   X,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DataService, saveLightweightPreferences } from '@/lib/storage/dataService';
 import {
@@ -28,7 +27,6 @@ interface ChatbotViewProps {
   dailyProgress: DailyProgressEntry[];
   initialMode?: ChatMode;
   initialPrompt?: string;
-  autoTriggerHairstylePreview?: boolean;
   onConsumedLaunchTrigger?: () => void;
 }
 
@@ -38,7 +36,7 @@ const MODES: Array<{ key: ChatMode; label: string; description: string }> = [
   { key: 'SKINCARE', label: 'SKINCARE', description: 'Skin concerns, actives & routines' },
   { key: 'DIET', label: 'DIET', description: 'Nutrition, macros & potassium/sodium' },
   { key: 'EXERCISES', label: 'EXERCISES', description: 'Training, cardio & neck posture' },
-  { key: 'HAIRSTYLE', label: 'HAIRSTYLE', description: 'Cut framing & AI visual preview' },
+  { key: 'HAIRSTYLE', label: 'HAIRSTYLE', description: 'Cut framing & barber specifications' },
 ];
 
 const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
@@ -77,6 +75,28 @@ const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
   ],
 };
 
+function startedStorageKey(ownerId: string, mode: ChatMode): string {
+  return `dt_chat_started_v1:${ownerId}:${mode}`;
+}
+
+function readModeStartedFlag(ownerId: string, mode: ChatMode): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(startedStorageKey(ownerId, mode)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeModeStartedFlag(ownerId: string, mode: ChatMode): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(startedStorageKey(ownerId, mode), '1');
+  } catch {
+    // Ignore storage quota errors cleanly
+  }
+}
+
 function renderFormattedText(text: string) {
   const lines = text.split('\n');
   return (
@@ -85,7 +105,6 @@ function renderFormattedText(text: string) {
         const trimmed = line.trim();
         if (!trimmed) return <div key={idx} className="h-1" />;
 
-        // Render **bold** inline segments safely without raw HTML injection
         const segments = line.split(/(\*\*[^*]+\*\*)/g).map((seg, sIdx) => {
           if (seg.startsWith('**') && seg.endsWith('**')) {
             return (
@@ -139,30 +158,6 @@ function compressAttachment(file: File): Promise<string> {
   });
 }
 
-function detectHairstylePreviewStyle(
-  message: string,
-  recommendedStyle: string | undefined,
-): string | null {
-  const lower = message.toLowerCase();
-  const isVisualTrigger =
-    /(show me|see how i (would|will) look|preview me|preview my|generate.*hair|put.*hairstyle on me|with a .* (haircut|fringe|fade|crop|quiff|mullet|pompadour|slick|crew|buzz))/i.test(
-      lower,
-    );
-  if (!isVisualTrigger) return null;
-
-  const matchWith = message.match(
-    /(?:with|try|wearing)\s+(?:a|an|the)?\s*([^.?!]{3,60})/i,
-  );
-  if (matchWith?.[1]) {
-    const cleaned = matchWith[1].trim();
-    if (/recommended hairstyle/i.test(cleaned) && recommendedStyle) {
-      return recommendedStyle;
-    }
-    return cleaned;
-  }
-  return recommendedStyle || 'Textured Modern Fringe with Tapered Sides';
-}
-
 export function ChatbotView({
   ownerId,
   profile,
@@ -170,11 +165,14 @@ export function ChatbotView({
   dailyProgress,
   initialMode,
   initialPrompt,
-  autoTriggerHairstylePreview,
   onConsumedLaunchTrigger,
 }: ChatbotViewProps) {
   const [mode, setMode] = useState<ChatMode>(initialMode ?? 'GENERAL');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [modeStarted, setModeStarted] = useState<boolean>(() =>
+    readModeStartedFlag(ownerId, initialMode ?? 'GENERAL'),
+  );
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<string | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -185,13 +183,22 @@ export function ChatbotView({
   const fileInputId = useId();
   const launchConsumedRef = useRef(false);
 
-  // Load persisted conversation history whenever ownerId or mode changes
+  // Load persisted conversation history & independent mode started state whenever ownerId or mode changes
   useEffect(() => {
     let cancelled = false;
     setErrorMsg('');
+    setHistoryLoaded(false);
+    const storedFlag = readModeStartedFlag(ownerId, mode);
+    setModeStarted(storedFlag);
+
     void DataService.getChatHistory(ownerId, mode).then((saved) => {
       if (!cancelled) {
         setMessages(saved);
+        if (saved.length > 0) {
+          writeModeStartedFlag(ownerId, mode);
+          setModeStarted(true);
+        }
+        setHistoryLoaded(true);
       }
     });
     saveLightweightPreferences({ preferredChatMode: mode });
@@ -232,7 +239,6 @@ export function ChatbotView({
       overallRating: result.overallRating,
       pslTier: result.pslTier,
       faceShape: result.faceShape,
-      overallConfidence: result.overallConfidence,
       proportions: result.proportions,
       postureRating: result.postureRating,
       subScores: result.subScores,
@@ -241,97 +247,16 @@ export function ChatbotView({
     };
   };
 
-  const triggerHairstylePreview = async (
-    styleSpecRaw?: string,
-    promptLabel?: string,
-  ) => {
-    setErrorMsg('');
-    const recommendedStyle =
-      latestRecord?.result.improvementPlan?.hairstyle?.recommendedStyle;
-    const styleSpec = (styleSpecRaw || recommendedStyle || '').trim();
-
-    if (!latestRecord?.frontPhoto?.dataUrl || !styleSpec) {
-      const assistantNotice: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: 'Please complete a facial scan first so I have your front photograph and recommended hairstyle specification before generating a visual preview.',
-        mode,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [...messages, assistantNotice];
-      setMessages(next);
-      await DataService.saveChatHistory(ownerId, mode, next);
-      return;
-    }
-
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      text: promptLabel || `SEE HOW I WILL LOOK WITH MY RECOMMENDED HAIRSTYLE (${styleSpec})`,
-      mode,
-      createdAt: new Date().toISOString(),
-    };
-    const withUser = [...messages, userMsg];
-    setMessages(withUser);
-    await DataService.saveChatHistory(ownerId, mode, withUser);
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/hairstyle-preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frontImageBase64: latestRecord.frontPhoto.dataUrl,
-          sideImageBase64: latestRecord.sidePhoto?.dataUrl,
-          hairstyleSpec: styleSpec,
-        }),
-      });
-      const data = (await res.json()) as {
-        imageDataUrl?: string;
-        caption?: string;
-        error?: string;
-      };
-      if (!res.ok || data.error || !data.imageDataUrl) {
-        throw new Error(data.error || 'Could not generate hairstyle preview.');
-      }
-
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: `**AI Hairstyle Preview — ${styleSpec}**\nPreserved your facial bone geometry, eye area, skin tone, and lighting while framing your head shape (${latestRecord.result.faceShape}).\n\n**Barber spec:** ${latestRecord.result.improvementPlan.hairstyle.barberInstructions}`,
-        imageDataUrl: data.imageDataUrl,
-        mode,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [...withUser, assistantMsg];
-      setMessages(next);
-      await DataService.saveChatHistory(ownerId, mode, next);
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Unable to generate hairstyle preview.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const sendMessage = async (textRaw: string, customMode?: ChatMode) => {
     const trimmed = textRaw.trim();
     if (!trimmed || loading) return;
 
     const targetMode = customMode ?? mode;
-    if (targetMode !== mode) setMode(targetMode);
-
-    // Check if user requested visual hairstyle preview naturally
-    const previewStyle = detectHairstylePreviewStyle(
-      trimmed,
-      latestRecord?.result.improvementPlan?.hairstyle?.recommendedStyle,
-    );
-    if (previewStyle) {
-      setInput('');
-      await triggerHairstylePreview(previewStyle, trimmed);
-      return;
+    writeModeStartedFlag(ownerId, targetMode);
+    if (targetMode !== mode) {
+      setMode(targetMode);
     }
+    setModeStarted(true);
 
     setErrorMsg('');
     setInput('');
@@ -387,7 +312,7 @@ export function ChatbotView({
 
       const payload = (await res.json()) as { reply?: string; error?: string };
       if (!res.ok || payload.error || !payload.reply) {
-        throw new Error(payload.error || 'Dactride AI failed to respond.');
+        throw new Error(payload.error || 'DARK TRIAD AI failed to respond.');
       }
 
       const assistantMsg: ChatMessage = {
@@ -402,36 +327,23 @@ export function ChatbotView({
       await DataService.saveChatHistory(ownerId, targetMode, finalList);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error ? err.message : 'Network error talking to Dactride AI.',
+        err instanceof Error ? err.message : 'Network error talking to DARK TRIAD AI.',
       );
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle cross-view launch triggers (Dashboard composer or Hairstyle Preview CTA)
   useEffect(() => {
     if (launchConsumedRef.current) return;
-    if (autoTriggerHairstylePreview) {
-      launchConsumedRef.current = true;
-      setMode('HAIRSTYLE');
-      void triggerHairstylePreview().finally(() => {
-        onConsumedLaunchTrigger?.();
-      });
-    } else if (initialPrompt) {
+    if (initialPrompt) {
       launchConsumedRef.current = true;
       void sendMessage(initialPrompt, initialMode ?? 'GENERAL').finally(() => {
         onConsumedLaunchTrigger?.();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPrompt, autoTriggerHairstylePreview]);
-
-  const handleClearConversation = async () => {
-    await DataService.clearChatHistory(ownerId, mode);
-    setMessages([]);
-    setErrorMsg('');
-  };
+  }, [initialPrompt]);
 
   const handleAttachFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -446,166 +358,75 @@ export function ChatbotView({
   };
 
   const suggestions = QUICK_SUGGESTIONS[mode];
+  const showQuickSuggestions = historyLoaded && !modeStarted && messages.length === 0;
 
   return (
-    <div className="flex flex-col rounded-[28px] border border-white/12 bg-[#17171a] min-h-[74vh] overflow-hidden shadow-2xl">
-      {/* Header matching Stitch Dark UI + Dactride Branding */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#1b1b1f] px-5 py-4 sm:px-6">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-lg sm:text-xl font-medium tracking-tight text-[#f4f4f5]">
-              DACTRIDE AI
-            </h1>
-            <span className="rounded-full border border-white/20 bg-white/8 px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#e4e4e7]">
-              {mode} MODE
-            </span>
-          </div>
-          <p className="mt-0.5 text-xs text-[#9e9ea6]">
-            Ask the AI questions related to your face and improvement journey.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setModeMenuOpen((o) => !o)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#252529] px-3.5 py-1.5 text-xs font-medium text-[#f4f4f5] hover:bg-[#2e2e34]"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-[#a1a1aa]" />
-              <span>SWITCH MODE</span>
-              <ChevronDown className="h-3.5 w-3.5 text-[#a1a1aa]" />
-            </button>
-
-            {modeMenuOpen && (
-              <div className="absolute right-0 top-10 z-40 w-64 rounded-2xl border border-white/15 bg-[#1e1e23] p-1.5 shadow-2xl">
-                {MODES.map((m) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => {
-                      setMode(m.key);
-                      setModeMenuOpen(false);
-                    }}
-                    className={`flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2 text-left transition-colors ${
-                      mode === m.key
-                        ? 'bg-[#f4f4f5] text-[#0a0a0a]'
-                        : 'text-[#e4e4e7] hover:bg-white/6'
-                    }`}
-                  >
-                    <div>
-                      <span className="block text-xs font-semibold">{m.label}</span>
-                      <span
-                        className={`block text-[10px] ${
-                          mode === m.key ? 'text-[#0a0a0a]/70' : 'text-[#8e8e95]'
-                        }`}
-                      >
-                        {m.description}
-                      </span>
-                    </div>
-                    {mode === m.key && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void handleClearConversation()}
-            title="Clear current mode conversation"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-[#232327] px-3 py-1.5 text-xs text-[#d4d4d8] hover:text-white"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </button>
-        </div>
+    <div className="flex min-h-[calc(100vh-11.5rem)] flex-col">
+      {/* Minimal Header Directly Below Navbar */}
+      <div className="border-b border-white/10 pb-3">
+        <h1 className="text-lg sm:text-xl font-medium tracking-[-0.02em] text-[#f4f4f5]">
+          DARK TRIAD AI
+        </h1>
       </div>
 
-      {/* Mode Pills Strip for instant 1-tap switching on mobile */}
-      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-white/8 bg-[#151518] px-4 py-2 sm:px-6 no-scrollbar">
-        {MODES.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            onClick={() => setMode(m.key)}
-            className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium tracking-[0.06em] transition-colors ${
-              mode === m.key
-                ? 'bg-white/15 text-white border border-white/30'
-                : 'text-[#8e8e95] hover:text-[#e4e4e7]'
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Scrollable Chat History Area */}
-      <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 space-y-4">
-        {messages.length === 0 && (
-          <div className="mx-auto max-w-xl py-6 text-center space-y-4">
-            <p className="text-xs font-medium tracking-[0.1em] text-[#8e8e95] uppercase">
-              {mode} Mode Ready ·{' '}
-              {latestRecord
-                ? `Connected to ${latestRecord.result.faceShape} scan (${latestRecord.result.overallRating.toFixed(1)}/10)`
-                : 'No facial scan yet'}
-            </p>
-            <p className="text-sm text-[#a1a1aa]">
-              {mode === 'GENERAL' &&
-                'Ask anything about your facial ratings, jawline, symmetry, skincare, nutrition, workouts, or hairstyle.'}
-              {mode === 'FEEDBACK' &&
-                'Focused on observable structural strengths, weaknesses, proportions, and realistic non-surgical improvements.'}
-              {mode === 'SKINCARE' &&
-                'Focused on visible skin tone, texture, AM/PM routines, active ingredients, and suitable formulations.'}
-              {mode === 'DIET' &&
-                'Focused on nutrition targets, protein, potassium/sodium balance, and sustainable Indian meal plans.'}
-              {mode === 'EXERCISES' &&
-                'Focused on resistance training, cardio, neck posture drills, and realistic jaw/masseter guidance.'}
-              {mode === 'HAIRSTYLE' &&
-                'Focused on hair framing for your bone structure — plus AI hairstyle previews directly on your portrait.'}
-            </p>
+      {/* Scrollable Conversation Area */}
+      <div className="flex-1 overflow-y-auto py-5 space-y-5">
+        {showQuickSuggestions && (
+          <div className="flex min-h-[38vh] flex-col justify-end pb-2">
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void sendMessage(q)}
+                  className="rounded-full border border-white/15 bg-white/4 px-3.5 py-2 text-left text-xs text-[#d4d4d8] hover:border-white/32 hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         {messages.map((msg) => (
-          <div
+          <motion.div
             key={msg.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[88%] sm:max-w-[78%] rounded-[22px] px-4 py-3.5 ${
+              className={`max-w-[90%] sm:max-w-[80%] px-4 py-3 ${
                 msg.role === 'user'
-                  ? 'border border-white/15 bg-[#2a2a30] text-[#f4f4f5]'
-                  : 'border border-white/10 bg-[#202024] text-[#e4e4e7]'
+                  ? 'rounded-2xl border border-white/15 bg-[#232329] text-[#f4f4f5]'
+                  : 'border-l border-white/20 pl-4 text-[#e4e4e7]'
               }`}
             >
               {msg.imageDataUrl && (
                 <img
                   src={msg.imageDataUrl}
-                  alt={msg.role === 'assistant' ? 'AI hairstyle preview' : 'Attached photo'}
-                  className="mb-3 max-h-80 w-auto rounded-2xl border border-white/15 object-cover"
+                  alt="Attached photo"
+                  className="mb-3 max-h-72 w-auto rounded-xl border border-white/15 object-cover"
                 />
               )}
               {renderFormattedText(msg.text)}
             </div>
-          </div>
+          </motion.div>
         ))}
 
         {loading && (
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2.5 rounded-full border border-white/12 bg-[#232327] px-4 py-2 text-xs text-[#d4d4d8]">
+            <div className="inline-flex items-center gap-2 text-xs text-[#a1a1aa]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>
-                {mode === 'HAIRSTYLE'
-                  ? 'Analyzing or rendering hairstyle preview...'
-                  : `Thinking in ${mode} mode...`}
-              </span>
+              <span>Analyzing in {mode} mode...</span>
             </div>
           </div>
         )}
 
         {errorMsg && (
-          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+          <div className="border-l-2 border-red-400/70 pl-3.5 py-1 text-xs text-red-200">
             {errorMsg}
           </div>
         )}
@@ -613,42 +434,13 @@ export function ChatbotView({
         <div ref={bottomRef} />
       </div>
 
-      {/* Dynamic Mode-Specific Quick Suggestions */}
-      <div className="border-t border-white/8 bg-[#161619] px-4 py-3 sm:px-6 space-y-2.5">
-        {mode === 'HAIRSTYLE' && (
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void triggerHairstylePreview()}
-            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-[#f4f4f5] px-5 py-2.5 text-xs font-semibold tracking-[0.04em] text-[#0a0a0a] hover:opacity-95 disabled:opacity-50"
-          >
-            <Scissors className="h-3.5 w-3.5" />
-            <span>SEE HOW I WILL LOOK WITH MY RECOMMENDED HAIRSTYLE</span>
-          </button>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {suggestions.map((q) => (
-            <button
-              key={q}
-              type="button"
-              disabled={loading}
-              onClick={() => void sendMessage(q)}
-              className="rounded-full border border-white/12 bg-[#212126] px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/30 hover:text-white transition-colors disabled:opacity-50"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Stitch-Style Dark Composer Input Bar */}
+      {/* Bottom Input Composer Area with SWITCH MODE control */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void sendMessage(input);
         }}
-        className="border-t border-white/10 bg-[#1a1a1e] p-3.5 sm:p-4"
+        className="border-t border-white/10 pt-3"
       >
         <input
           id={fileInputId}
@@ -679,7 +471,7 @@ export function ChatbotView({
           </div>
         )}
 
-        <div className="rounded-[22px] border border-white/15 bg-[#222227] p-3">
+        <div className="relative rounded-2xl border border-white/15 bg-[#18181b]/90 p-3">
           <textarea
             rows={2}
             value={input}
@@ -690,11 +482,7 @@ export function ChatbotView({
                 void sendMessage(input);
               }
             }}
-            placeholder={
-              mode === 'HAIRSTYLE'
-                ? 'Ask about hairstyles or try: "Show me how I would look with a textured fringe"'
-                : `Ask Dactride AI (${mode} mode)...`
-            }
+            placeholder={`Ask DARK TRIAD AI (${mode} mode)...`}
             className="w-full resize-none bg-transparent px-1 text-sm text-[#f4f4f5] placeholder:text-[#7c7c85] focus:outline-none"
           />
 
@@ -707,16 +495,48 @@ export function ChatbotView({
               <Paperclip className="h-4 w-4" />
             </label>
 
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setModeMenuOpen((o) => !o)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#2a2a30] px-3 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#33333a]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#232327] px-3 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#2d2d33]"
               >
                 <Sparkles className="h-3 w-3 text-[#a1a1aa]" />
                 <span>SWITCH MODE · {mode}</span>
                 <ChevronDown className="h-3 w-3 text-[#a1a1aa]" />
               </button>
+
+              {modeMenuOpen && (
+                <div className="absolute right-10 bottom-11 z-50 w-64 rounded-2xl border border-white/15 bg-[#1e1e23] p-1.5 shadow-2xl">
+                  {MODES.map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => {
+                        setMode(m.key);
+                        setModeMenuOpen(false);
+                      }}
+                      className={`flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2 text-left transition-colors ${
+                        mode === m.key
+                          ? 'bg-[#f4f4f5] text-[#0a0a0a]'
+                          : 'text-[#e4e4e7] hover:bg-white/6'
+                      }`}
+                    >
+                      <div>
+                        <span className="block text-xs font-semibold">{m.label}</span>
+                        <span
+                          className={`block text-[10px] ${
+                            mode === m.key ? 'text-[#0a0a0a]/70' : 'text-[#8e8e95]'
+                          }`}
+                        >
+                          {m.description}
+                        </span>
+                      </div>
+                      {mode === m.key && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <button
                 type="submit"
