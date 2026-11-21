@@ -8,6 +8,8 @@ import {
 } from '@/lib/geminiServer';
 import { UserProfile } from '@/lib/types';
 
+export const maxDuration = 60;
+
 interface AnalyzeBody {
   frontImageBase64?: string;
   frontMimeType?: string;
@@ -112,20 +114,23 @@ STRICT INSTRUCTIONS:
    - skincare: visible concerns (non-diagnostic), AM/PM routines, key ingredients, real Indian-available drugstore/derma products (e.g. Cetaphil, Minimalist, CeraVe, Neutrogena, Bioderma — never invent fake brands or prices), usage, precautions, realistic timeline.
    - diet: personalized to user profile (do NOT infer body fat from a face photo; ${isUnder18 ? 'USER IS UNDER 18: strictly avoid calorie deficits, restrictive dieting, or extreme protocols — focus purely on balanced nutrition, whole foods, sleep, and hydration' : 'avoid extreme calorie deficits'}).
    - exercises: cardio, walking/running, resistance training, neck exercises with sets/reps/safety cues, safe jaw/masseter notes (explicitly state exercises cannot reshape adult facial bones).
-   - hairstyle: specific cut suited to face shape, forehead height, jawline, hairline & texture, exact barber specs, and styling routine.`,
+   - hairstyle: specific cut suited to face shape, forehead height, jawline, hairline & texture, exact barber specs, and styling routine.
+
+5. CONCISE HIGH-SIGNAL SPEED RULE: Keep every assessment, explanation, and plan field crisp and direct (1–2 punchy sentences per text field, max 2 concise bullets per list, 2 top Indian drugstore skincare products, 2–3 key neck exercises) so the report stays sharp and returns rapidly.`,
     },
   ];
 
   const stringArray = { type: Type.ARRAY, items: { type: Type.STRING } };
 
   try {
-    const response = await generateWithRetryCascade((model) => ({
-      model,
-      contents: { parts },
-      config: {
-        systemInstruction:
-          'You are Dark Triad AI, a strict, evidence-based PSL facial aesthetics analyst and Indian grooming strategist. Output rigorous, mathematically consistent scores, realistic 0-1000 landmark coordinates, and honest non-clinical guidance.',
-        responseMimeType: 'application/json',
+    const response = await generateWithRetryCascade(
+      (model) => ({
+        model,
+        contents: { parts },
+        config: {
+          systemInstruction:
+            'You are Dark Triad AI, a strict, evidence-based PSL facial aesthetics analyst and Indian grooming strategist. Output rigorous, mathematically consistent scores, realistic 0-1000 landmark coordinates, and concise non-clinical guidance.',
+          responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -451,10 +456,19 @@ STRICT INSTRUCTIONS:
             'improvementPlan',
           ],
         },
-      },
-    }));
+        },
+      }),
+      [
+        { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 22000 },
+        { model: 'gemini-4-hydrogen', delayMs: 300, timeoutMs: 22000 },
+      ],
+    );
 
-    const parsed = JSON.parse((response.text ?? '{}').trim());
+    const rawText = (response.text ?? '{}')
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '');
+    const parsed = JSON.parse(rawText);
     return NextResponse.json(parsed);
   } catch (err) {
     const readable = extractReadableGeminiError(err);

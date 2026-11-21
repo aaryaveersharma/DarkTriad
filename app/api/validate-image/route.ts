@@ -73,8 +73,8 @@ Determine:
         },
       }),
       [
-        { model: 'gemini-3.1-flash-lite', delayMs: 0 },
-        { model: 'gemini-4-hydrogen', delayMs: 700 },
+        { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 12000 },
+        { model: 'gemini-4-hydrogen', delayMs: 300, timeoutMs: 12000 },
       ],
     );
 

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { DM_Sans } from 'next/font/google';
+import { DM_Sans, Pixelify_Sans } from 'next/font/google';
 import './globals.css';
 
 const dmSans = DM_Sans({
@@ -7,6 +7,12 @@ const dmSans = DM_Sans({
   style: ['normal', 'italic'],
   subsets: ['latin'],
   variable: '--font-sans',
+});
+
+const designSocietyFont = Pixelify_Sans({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin'],
+  variable: '--font-design-society',
 });
 
 export const metadata: Metadata = {
@@ -33,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={dmSans.variable}>
+    <html lang="en" className={`${dmSans.variable} ${designSocietyFont.variable}`}>
       <body className="scanline-bg min-h-screen text-[#0a0a0a] antialiased selection:bg-[#0a0a0a] selection:text-[#e6e6e3]">
         {children}
       </body>

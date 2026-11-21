@@ -37,6 +37,11 @@
   letter-spacing: -0.045em;
 }
 
+.font-design-society {
+  font-family: var(--font-design-society), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.015em;
+}
+
 /* Pomelli-inspired italic geometric display style */
 .pomelli-display {
   font-family: var(--font-sans), system-ui, sans-serif;

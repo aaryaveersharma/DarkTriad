@@ -15,11 +15,17 @@ import { ProfileView } from '@/components/app/ProfileView';
 import { RankingsView } from '@/components/app/RankingsView';
 import { ResultsView } from '@/components/app/ResultsView';
 import { StitchShell } from '@/components/app/StitchShell';
-import { getActiveSession, logoutLocalAccount } from '@/lib/storage/auth';
+import {
+  getActiveSession,
+  logoutLocalAccount,
+  updateSupabasePassword,
+} from '@/lib/storage/auth';
 import {
   DataService,
   getOrCreateAnonymousOwnerId,
+  isRemoteSupabaseConfigured,
 } from '@/lib/storage/dataService';
+import { getSupabaseClient } from '@/lib/storage/supabaseClient';
 import {
   AppView,
   AuthSession,
@@ -63,6 +69,10 @@ export default function HomePage() {
   const [cameraTriggerCount, setCameraTriggerCount] = useState(0);
   const [isUpdatingSelfie, setIsUpdatingSelfie] = useState(false);
   const [chatLaunchConfig, setChatLaunchConfig] = useState<ChatLaunchConfig | null>(null);
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recoverySaving, setRecoverySaving] = useState(false);
 
   const loadWorkspaceData = useCallback(async (targetOwnerId: string) => {
     const [loadedProfile, loadedAnalyses, loadedProgress] = await Promise.all([
@@ -92,6 +102,13 @@ export default function HomePage() {
           : getOrCreateAnonymousOwnerId();
         if (!active) return;
 
+        if (activeSession) {
+          await DataService.associateAnonymousData(
+            activeSession.userId,
+            activeSession.email,
+          );
+        }
+
         setSession(activeSession);
         await loadWorkspaceData(resolvedOwner);
         if (!active) return;
@@ -104,8 +121,33 @@ export default function HomePage() {
       }
     };
     void init();
+
+    const supabase = isRemoteSupabaseConfigured() ? getSupabaseClient() : null;
+    const subscription = supabase?.auth.onAuthStateChange((event, sbSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryOpen(true);
+      } else if (event === 'SIGNED_IN' && sbSession?.user) {
+        const nextSession: AuthSession = {
+          userId: sbSession.user.id,
+          email: sbSession.user.email ?? '',
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(
+            (sbSession.expires_at ?? Math.floor(Date.now() / 1000) + 86400) * 1000,
+          ).toISOString(),
+        };
+        setSession(nextSession);
+        void DataService.associateAnonymousData(nextSession.userId, nextSession.email).then(
+          () => loadWorkspaceData(nextSession.userId),
+        );
+        setActiveView('dashboard');
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
+      }
+    });
+
     return () => {
       active = false;
+      subscription?.data.subscription.unsubscribe();
     };
   }, [loadWorkspaceData]);
 
@@ -143,6 +185,7 @@ export default function HomePage() {
     async (newSession: AuthSession) => {
       setAuthModalOpen(false);
       setSession(newSession);
+      await DataService.associateAnonymousData(newSession.userId, newSession.email);
       await loadWorkspaceData(newSession.userId);
       setActiveView('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -227,9 +270,89 @@ export default function HomePage() {
     );
   }
 
+  const handleSaveRecoveredPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError('');
+    setRecoverySaving(true);
+    try {
+      await updateSupabasePassword(recoveryNewPassword);
+      setRecoveryNewPassword('');
+      setPasswordRecoveryOpen(false);
+      const activeSession = await getActiveSession();
+      if (activeSession) {
+        setSession(activeSession);
+        await loadWorkspaceData(activeSession.userId);
+        setActiveView('dashboard');
+      }
+    } catch (err) {
+      setRecoveryError(
+        err instanceof Error ? err.message : 'Unable to update password.',
+      );
+    } finally {
+      setRecoverySaving(false);
+    }
+  };
+
+  const recoveryModalNode = passwordRecoveryOpen ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Set new password"
+    >
+      <form
+        onSubmit={(e) => void handleSaveRecoveredPassword(e)}
+        className="stitch-dark-bg w-full max-w-md rounded-[28px] border border-white/15 p-6 sm:p-8 shadow-2xl space-y-4"
+      >
+        <p className="text-[11px] font-medium tracking-[0.12em] text-[#9e9ea6] uppercase">
+          Dark Triad AI · Password Reset
+        </p>
+        <h2 className="text-xl font-medium tracking-[-0.02em] text-[#f4f4f5]">
+          SET A NEW PASSWORD
+        </h2>
+        {recoveryError && (
+          <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-3.5 py-2 text-xs text-red-200">
+            {recoveryError}
+          </div>
+        )}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-[#d4d4d8]">
+            New Password
+          </label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={recoveryNewPassword}
+            onChange={(e) => setRecoveryNewPassword(e.target.value)}
+            placeholder="At least 6 characters"
+            className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] px-3.5 py-2.5 text-sm text-[#f4f4f5] focus:border-white/40 focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="submit"
+            disabled={recoverySaving}
+            className="flex-1 rounded-full bg-[#f4f4f5] py-2.5 text-xs font-semibold text-[#0a0a0a] disabled:opacity-50"
+          >
+            {recoverySaving ? 'UPDATING...' : 'UPDATE PASSWORD'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPasswordRecoveryOpen(false)}
+            className="rounded-full border border-white/15 px-4 py-2.5 text-xs text-[#d4d4d8]"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  ) : null;
+
   // Dark Stitch Workspace Views (Post-scan Results, Dashboard, Chatbot, Rankings, Improve, Profile)
   if (activeView !== 'landing') {
     return (
+      <>
       <StitchShell
         activeView={activeView}
         onNavigate={(view) => {
@@ -339,6 +462,8 @@ export default function HomePage() {
           />
         )}
       </StitchShell>
+      {recoveryModalNode}
+      </>
     );
   }
 
@@ -378,6 +503,7 @@ export default function HomePage() {
         onMoveForwardWithoutLogin={handleMoveForwardWithoutLogin}
         hasLocalScans={analyses.length > 0}
       />
+      {recoveryModalNode}
     </div>
   );
 }

@@ -23,7 +23,7 @@ export function TopNav({ onTriggerScan }: TopNavProps) {
           href="#top"
           className="flex items-center text-[#0a0a0a] whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
         >
-          <span className="text-lg sm:text-xl font-semibold tracking-[-0.035em] leading-none text-[#0a0a0a] whitespace-nowrap shrink-0">
+          <span className="font-design-society text-xl sm:text-[22px] font-medium leading-none text-[#0a0a0a] whitespace-nowrap shrink-0">
             Dark Triad
           </span>
         </a>

@@ -613,7 +613,7 @@ export function DashboardHomeView({
               </button>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 items-start">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-4 items-start">
               <FrontMeasurementOverlay
                 photo={activeRecord.frontPhoto}
                 landmarks={activeRecord.result.frontLandmarks}

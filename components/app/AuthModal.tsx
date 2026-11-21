@@ -1,11 +1,13 @@
 'use client';
 
-import { ArrowRight, KeyRound, Lock, Mail, X } from 'lucide-react';
+import { ArrowRight, Check, KeyRound, Lock, Mail, X } from 'lucide-react';
 import { useState } from 'react';
 import {
   loginLocalAccount,
   resetPasswordWithRecoveryCode,
+  sendSupabasePasswordReset,
 } from '@/lib/storage/auth';
+import { isRemoteSupabaseConfigured } from '@/lib/storage/supabaseClient';
 import { AuthSession } from '@/lib/types';
 
 interface AuthModalProps {
@@ -29,13 +31,17 @@ export function AuthModal({
   const [recoveryCode, setRecoveryCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!open) return null;
 
+  const remoteConfigured = isRemoteSupabaseConfigured();
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
     try {
       const session = await loginLocalAccount(email, password);
@@ -50,14 +56,22 @@ export function AuthModal({
   const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
     try {
-      const session = await resetPasswordWithRecoveryCode(
-        email,
-        recoveryCode,
-        newPassword,
-      );
-      onAuthenticated(session);
+      if (remoteConfigured) {
+        await sendSupabasePasswordReset(email);
+        setNotice(
+          `Password reset link sent to ${email.trim().toLowerCase()}. Open the link from your inbox to set a new password.`,
+        );
+      } else {
+        const session = await resetPasswordWithRecoveryCode(
+          email,
+          recoveryCode,
+          newPassword,
+        );
+        onAuthenticated(session);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Password reset failed.');
     } finally {
@@ -94,12 +108,21 @@ export function AuthModal({
         <p className="mt-1.5 text-xs leading-relaxed text-[#a1a1aa]">
           {mode === 'login'
             ? 'Log in with your saved email and password to restore your ratings, timeline, and tracker.'
-            : 'Enter your email and recovery code saved during registration to set a new password.'}
+            : remoteConfigured
+              ? 'Enter your account email and we will send a secure password reset link to your inbox.'
+              : 'Enter your email and recovery code saved during registration to set a new password.'}
         </p>
 
         {error && (
           <div className="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-200">
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-400/35 bg-emerald-500/15 px-3.5 py-2.5 text-xs text-emerald-100">
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{notice}</span>
           </div>
         )}
 
@@ -129,6 +152,7 @@ export function AuthModal({
                   type="button"
                   onClick={() => {
                     setError('');
+                    setNotice('');
                     setMode('recovery');
                   }}
                   className="text-[11px] font-medium text-[#a1a1aa] hover:text-white underline underline-offset-4"
@@ -172,47 +196,61 @@ export function AuthModal({
                 className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] px-3.5 py-2.5 text-sm text-[#f4f4f5] focus:border-white/40 focus:outline-none"
               />
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-[#d4d4d8]">
-                Recovery Code
-              </label>
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#8e8e95]" />
-                <input
-                  type="text"
-                  required
-                  value={recoveryCode}
-                  onChange={(e) => setRecoveryCode(e.target.value)}
-                  placeholder="DT-XXXXXXXX"
-                  className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] py-2.5 pr-3.5 pl-10 text-sm uppercase text-[#f4f4f5] focus:border-white/40 focus:outline-none"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-[#d4d4d8]">
-                New Password
-              </label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 6 characters"
-                className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] px-3.5 py-2.5 text-sm text-[#f4f4f5] focus:border-white/40 focus:outline-none"
-              />
-            </div>
+
+            {!remoteConfigured && (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[#d4d4d8]">
+                    Recovery Code
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#8e8e95]" />
+                    <input
+                      type="text"
+                      required
+                      value={recoveryCode}
+                      onChange={(e) => setRecoveryCode(e.target.value)}
+                      placeholder="DT-XXXXXXXX"
+                      className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] py-2.5 pr-3.5 pl-10 text-sm uppercase text-[#f4f4f5] focus:border-white/40 focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[#d4d4d8]">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    className="w-full rounded-xl border border-white/15 bg-[#1a1a1d] px-3.5 py-2.5 text-sm text-[#f4f4f5] focus:border-white/40 focus:outline-none"
+                  />
+                </div>
+              </>
+            )}
+
             <div className="flex items-center gap-2">
               <button
                 type="submit"
                 disabled={loading}
                 className="flex-1 rounded-full bg-[#f4f4f5] py-2.5 text-xs font-semibold text-[#0a0a0a]"
               >
-                {loading ? 'RESETTING...' : 'RESET & LOGIN'}
+                {loading
+                  ? 'SENDING...'
+                  : remoteConfigured
+                    ? 'SEND RESET LINK'
+                    : 'RESET & LOGIN'}
               </button>
               <button
                 type="button"
-                onClick={() => setMode('login')}
+                onClick={() => {
+                  setError('');
+                  setNotice('');
+                  setMode('login');
+                }}
                 className="rounded-full border border-white/15 px-4 py-2.5 text-xs text-[#d4d4d8]"
               >
                 Back

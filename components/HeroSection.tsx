@@ -60,8 +60,7 @@ export function HeroSection({
     }
   };
 
-  const phaseState =
-    sliderPos < 42 ? 'after' : sliderPos > 58 ? 'before' : 'split';
+  const phaseState: 'before' | 'after' = sliderPos >= 50 ? 'before' : 'after';
 
   return (
     <section
@@ -150,9 +149,9 @@ export function HeroSection({
             className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/65 via-black/25 to-transparent"
           />
 
-          {/* Dynamic Transitioning Phase Text (Before <-> Glow-Up After) */}
+          {/* Dynamic Transitioning Phase Text (Baseline <-> Glow-Up only) */}
           <div className="pointer-events-none absolute inset-x-0 bottom-3.5 z-20 flex justify-center px-3">
-            <div className="relative h-7 min-w-[172px] overflow-hidden rounded-full border border-white/25 bg-[#0a0a0a]/85 px-3.5 backdrop-blur-md shadow-lg">
+            <div className="relative h-7 min-w-[164px] overflow-hidden rounded-full border border-white/25 bg-[#0a0a0a]/85 px-3.5 backdrop-blur-md shadow-lg">
               <span
                 className={`absolute inset-0 flex items-center justify-center text-[11px] font-semibold tracking-[0.11em] text-[#f3f3f1] uppercase transition-all duration-200 ${
                   phaseState === 'before'
@@ -161,17 +160,6 @@ export function HeroSection({
                 }`}
               >
                 Before · Baseline
-              </span>
-              <span
-                className={`absolute inset-0 flex items-center justify-center text-[11px] font-semibold tracking-[0.11em] text-[#f3f3f1] uppercase transition-all duration-200 ${
-                  phaseState === 'split'
-                    ? 'opacity-100 translate-y-0'
-                    : phaseState === 'after'
-                      ? 'opacity-0 -translate-y-2'
-                      : 'opacity-0 translate-y-2'
-                }`}
-              >
-                Before ← Slide → After
               </span>
               <span
                 className={`absolute inset-0 flex items-center justify-center text-[11px] font-semibold tracking-[0.11em] text-[#f3f3f1] uppercase transition-all duration-200 ${

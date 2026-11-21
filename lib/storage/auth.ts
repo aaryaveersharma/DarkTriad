@@ -1,5 +1,6 @@
 import { AuthSession, AuthUser } from '../types';
 import { idbDelete, idbGet, idbGetByIndex, idbPut } from './idb';
+import { getSupabaseClient, isRemoteSupabaseConfigured } from './supabaseClient';
 
 const ACTIVE_SESSION_KEY = 'active_auth_session';
 
@@ -45,6 +46,31 @@ async function hashSecretWithSalt(secret: string, saltHex: string): Promise<stri
 }
 
 export async function getActiveSession(): Promise<AuthSession | null> {
+  if (isRemoteSupabaseConfigured()) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const sbSession = data.session;
+        if (sbSession?.user) {
+          const authSession: AuthSession = {
+            userId: sbSession.user.id,
+            email: sbSession.user.email ?? '',
+            issuedAt: new Date().toISOString(),
+            expiresAt: new Date(
+              (sbSession.expires_at ?? Math.floor(Date.now() / 1000) + 3600) * 1000,
+            ).toISOString(),
+          };
+          await idbPut('sessions', { key: ACTIVE_SESSION_KEY, session: authSession });
+          return authSession;
+        }
+        return null;
+      } catch {
+        // Fallback to cached session only if network temporarily offline
+      }
+    }
+  }
+
   const record = await idbGet<{ key: string; session: AuthSession }>(
     'sessions',
     ACTIVE_SESSION_KEY,
@@ -60,13 +86,51 @@ export async function getActiveSession(): Promise<AuthSession | null> {
 export async function registerLocalAccount(
   emailRaw: string,
   password: string,
-): Promise<{ user: AuthUser; session: AuthSession; recoveryCode: string }> {
+): Promise<{
+  session: AuthSession | null;
+  recoveryCode: string;
+  pendingEmailVerification?: boolean;
+}> {
   const email = emailRaw.trim().toLowerCase();
   if (!email || !email.includes('@')) {
     throw new Error('Please enter a valid email address.');
   }
   if (password.length < 6) {
     throw new Error('Password must be at least 6 characters long.');
+  }
+
+  if (isRemoteSupabaseConfigured()) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo:
+            typeof window !== 'undefined' ? window.location.origin : undefined,
+        },
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (!data.session || !data.user) {
+        return {
+          session: null,
+          recoveryCode: '',
+          pendingEmailVerification: true,
+        };
+      }
+      const session: AuthSession = {
+        userId: data.user.id,
+        email: data.user.email ?? email,
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(
+          (data.session.expires_at ?? Math.floor(Date.now() / 1000) + 86400) * 1000,
+        ).toISOString(),
+      };
+      await idbPut('sessions', { key: ACTIVE_SESSION_KEY, session });
+      return { session, recoveryCode: '', pendingEmailVerification: false };
+    }
   }
 
   const existing = await idbGetByIndex<AuthUser>('users', 'email', email);
@@ -98,7 +162,7 @@ export async function registerLocalAccount(
   };
 
   await idbPut('sessions', { key: ACTIVE_SESSION_KEY, session });
-  return { user, session, recoveryCode };
+  return { session, recoveryCode, pendingEmailVerification: false };
 }
 
 export async function loginLocalAccount(
@@ -106,6 +170,30 @@ export async function loginLocalAccount(
   password: string,
 ): Promise<AuthSession> {
   const email = emailRaw.trim().toLowerCase();
+
+  if (isRemoteSupabaseConfigured()) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error || !data.user || !data.session) {
+        throw new Error(error?.message || 'Unable to log in with Supabase.');
+      }
+      const session: AuthSession = {
+        userId: data.user.id,
+        email: data.user.email ?? email,
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(
+          (data.session.expires_at ?? Math.floor(Date.now() / 1000) + 86400) * 1000,
+        ).toISOString(),
+      };
+      await idbPut('sessions', { key: ACTIVE_SESSION_KEY, session });
+      return session;
+    }
+  }
+
   const matches = await idbGetByIndex<AuthUser>('users', 'email', email);
   const user = matches[0];
   if (!user) {
@@ -126,6 +214,38 @@ export async function loginLocalAccount(
 
   await idbPut('sessions', { key: ACTIVE_SESSION_KEY, session });
   return session;
+}
+
+export async function sendSupabasePasswordReset(emailRaw: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error('Cloud sync is not configured.');
+  }
+  const email = emailRaw.trim().toLowerCase();
+  if (!email) {
+    throw new Error('Please enter your email address.');
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo:
+      typeof window !== 'undefined' ? window.location.origin : undefined,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function updateSupabasePassword(newPassword: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error('Cloud sync is not configured.');
+  }
+  if (newPassword.length < 6) {
+    throw new Error('New password must be at least 6 characters.');
+  }
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function resetPasswordWithRecoveryCode(
@@ -173,5 +293,13 @@ export async function resetPasswordWithRecoveryCode(
 }
 
 export async function logoutLocalAccount(): Promise<void> {
+  if (isRemoteSupabaseConfigured()) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      await supabase.auth.signOut().catch(() => {
+        // Ignore offline signout network failures
+      });
+    }
+  }
   await idbDelete('sessions', ACTIVE_SESSION_KEY);
 }

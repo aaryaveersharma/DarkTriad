@@ -179,7 +179,7 @@ export function ResultsView({
           </button>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-2 items-start">
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-5 items-start">
           <div className="space-y-2">
             <FrontMeasurementOverlay
               photo={frontPhoto}

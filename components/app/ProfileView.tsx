@@ -42,6 +42,7 @@ export function ProfileView({
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regError, setRegError] = useState('');
+  const [regSuccessMsg, setRegSuccessMsg] = useState('');
   const [regLoading, setRegLoading] = useState(false);
   const [recoveryCodeBanner, setRecoveryCodeBanner] = useState<string>('');
   const [copiedRecovery, setCopiedRecovery] = useState(false);
@@ -59,14 +60,30 @@ export function ProfileView({
   const handleRegisterAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError('');
+    setRegSuccessMsg('');
     setRegLoading(true);
     try {
-      const { session: newSession, recoveryCode } = await registerLocalAccount(
-        regEmail,
-        regPassword,
-      );
-      await DataService.associateAnonymousData(newSession.userId);
-      setRecoveryCodeBanner(recoveryCode);
+      const {
+        session: newSession,
+        recoveryCode,
+        pendingEmailVerification,
+      } = await registerLocalAccount(regEmail, regPassword);
+
+      if (pendingEmailVerification || !newSession) {
+        setRegSuccessMsg(
+          `Verification link sent to ${regEmail.trim().toLowerCase()}. Open the link in your inbox, then log in from Dashboard — all your local scans and daily logs stay saved and will sync to Supabase on sign-in.`,
+        );
+        return;
+      }
+
+      await DataService.associateAnonymousData(newSession.userId, newSession.email);
+      if (recoveryCode) {
+        setRecoveryCodeBanner(recoveryCode);
+      } else {
+        setRegSuccessMsg(
+          'Cloud account linked and synced with Supabase. Your data is backed up across devices.',
+        );
+      }
       onAccountLinked(newSession);
     } catch (err) {
       setRegError(err instanceof Error ? err.message : 'Registration failed.');
@@ -261,6 +278,12 @@ export function ProfileView({
             </span>
           )}
         </div>
+
+        {regSuccessMsg && (
+          <div className="rounded-2xl border border-emerald-400/35 bg-emerald-500/15 p-4 text-xs text-emerald-100 leading-relaxed">
+            {regSuccessMsg}
+          </div>
+        )}
 
         {recoveryCodeBanner && (
           <div className="rounded-2xl border border-amber-400/35 bg-amber-500/10 p-4 text-xs text-amber-100 space-y-2">
