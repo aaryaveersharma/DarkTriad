@@ -7,17 +7,13 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  Plus,
   RefreshCw,
   Upload,
   X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PSLAnalysisResult, StoredPhoto, UserProfile } from '@/lib/types';
-import {
-  detectFrontFaceLandmarks,
-  FrontVisionResult,
-} from '@/lib/vision/faceLandmarker';
 import { FaceAvatarsCluster } from './TriadEmblems';
 import {
   FrontMeasurementOverlay,
@@ -26,13 +22,6 @@ import {
 
 type BoxMode = 'idle' | 'requesting' | 'camera' | 'analyzing' | 'error';
 type CaptureSlot = 'front' | 'side';
-
-const validationCache = new Map<string, { valid: boolean; message?: string }>();
-const analyzePromiseCache = new Map<string, Promise<PSLAnalysisResult>>();
-
-function photoSig(dataUrl: string): string {
-  return `${dataUrl.length}:${dataUrl.slice(0, 48)}:${dataUrl.slice(-36)}`;
-}
 
 interface CurvedCameraBoxProps {
   externalTriggerCount: number;
@@ -58,8 +47,8 @@ function compressFileToJpeg(file: File): Promise<StoredPhoto> {
         1,
         maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1),
       );
-      const width = Math.max(1, Math.round((img.naturalWidth || 640) * scale));
-      const height = Math.max(1, Math.round((img.naturalHeight || 853) * scale));
+      const width = Math.max(1, Math.round((img.naturalWidth || 720) * scale));
+      const height = Math.max(1, Math.round((img.naturalHeight || 960) * scale));
 
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -101,17 +90,22 @@ export function CurvedCameraBox({
   const [liveFeedActive, setLiveFeedActive] = useState(false);
   const [cameraNotice, setCameraNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [inlineUploadOpen, setInlineUploadOpen] = useState(false);
 
   const [frontPhoto, setFrontPhoto] = useState<StoredPhoto | null>(null);
   const [sidePhoto, setSidePhoto] = useState<StoredPhoto | null>(null);
-  const [frontVision, setFrontVision] = useState<FrontVisionResult | null>(null);
   const [validatingSlot, setValidatingSlot] = useState<CaptureSlot | null>(null);
   const [slotErrors, setSlotErrors] = useState<{ front?: string; side?: string }>({});
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastTriggerRef = useRef<number>(externalTriggerCount);
-  const mappingTimersRef = useRef<number[]>([]);
+  const resultCacheRef = useRef<Map<string, PSLAnalysisResult>>(new Map());
+  const frontPhotoRef = useRef<StoredPhoto | null>(null);
+  const sidePhotoRef = useRef<StoredPhoto | null>(null);
+  frontPhotoRef.current = frontPhoto;
+  sidePhotoRef.current = sidePhoto;
+
   const onAnalysisCompleteRef = useRef(onAnalysisComplete);
   onAnalysisCompleteRef.current = onAnalysisComplete;
 
@@ -119,11 +113,6 @@ export function CurvedCameraBox({
   const frontCameraId = useId();
   const sideUploadId = useId();
   const sideCameraId = useId();
-
-  const clearMappingTimers = useCallback(() => {
-    mappingTimersRef.current.forEach((id) => window.clearTimeout(id));
-    mappingTimersRef.current = [];
-  }, []);
 
   const stopCameraStream = useCallback(() => {
     if (streamRef.current) {
@@ -139,9 +128,8 @@ export function CurvedCameraBox({
   useEffect(() => {
     return () => {
       stopCameraStream();
-      clearMappingTimers();
     };
-  }, [stopCameraStream, clearMappingTimers]);
+  }, [stopCameraStream]);
 
   useEffect(() => {
     if (mode !== 'camera' || !liveFeedActive) return;
@@ -187,13 +175,11 @@ export function CurvedCameraBox({
 
   const openCamera = useCallback(
     async (slot: CaptureSlot = 'front', preserveExisting = false) => {
-      clearMappingTimers();
       setErrorMessage('');
       setCameraNotice('');
       if (!preserveExisting) {
         setFrontPhoto(null);
         setSidePhoto(null);
-        setFrontVision(null);
         setSlotErrors({});
       }
       setActiveSlot(slot);
@@ -228,24 +214,8 @@ export function CurvedCameraBox({
         setMode('camera');
       }
     },
-    [clearMappingTimers, stopCameraStream],
+    [stopCameraStream],
   );
-
-  const openUploadStage = useCallback(() => {
-    clearMappingTimers();
-    stopCameraStream();
-    setErrorMessage('');
-    setCameraNotice(
-      'Upload or capture a clear FRONT PROFILE and a genuine 90° SIDE PROFILE.',
-    );
-    setFrontPhoto(null);
-    setSidePhoto(null);
-    setFrontVision(null);
-    setSlotErrors({});
-    setActiveSlot('front');
-    setLiveFeedActive(false);
-    setMode('camera');
-  }, [clearMappingTimers, stopCameraStream]);
 
   useEffect(() => {
     if (externalTriggerCount > lastTriggerRef.current) {
@@ -254,157 +224,139 @@ export function CurvedCameraBox({
     }
   }, [externalTriggerCount, openCamera]);
 
-  const fetchAnalysisWithCache = useCallback(
-    (
-      front: StoredPhoto,
-      side: StoredPhoto,
-      visionOverride?: FrontVisionResult | null,
-    ): Promise<PSLAnalysisResult> => {
-      const pairKey = `${photoSig(front.dataUrl)}__${photoSig(side.dataUrl)}__${profile?.age ?? ''}__${profile?.gender ?? ''}__${profile?.fitnessGoals ?? ''}`;
-      const existingPromise = analyzePromiseCache.get(pairKey);
-      if (existingPromise) {
-        return existingPromise;
+  const runAnalysis = useCallback(
+    async (front: StoredPhoto, side: StoredPhoto) => {
+      stopCameraStream();
+      setMode('analyzing');
+      setErrorMessage('');
+
+      const clientCacheKey = `${front.dataUrl.length}:${front.dataUrl.slice(-48)}|${side.dataUrl.length}:${side.dataUrl.slice(-48)}|${profile?.updatedAt ?? ''}`;
+      const cachedResult = resultCacheRef.current.get(clientCacheKey);
+      if (cachedResult) {
+        onAnalysisCompleteRef.current(front, side, cachedResult);
+        return;
       }
 
-      const promise = (async () => {
-        const vision =
-          visionOverride ?? frontVision ?? (await detectFrontFaceLandmarks(front.dataUrl));
+      const controller = new AbortController();
+      const requestTimeout = window.setTimeout(() => controller.abort(), 36000);
 
-        const controller = new AbortController();
-        const requestTimeout = window.setTimeout(() => controller.abort(), 35000);
+      try {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            frontImageBase64: front.dataUrl,
+            frontMimeType: 'image/jpeg',
+            sideImageBase64: side.dataUrl,
+            sideMimeType: 'image/jpeg',
+            profile: profile ?? null,
+            previousAnalysisSummary: previousAnalysisSummary ?? null,
+          }),
+        });
 
+        const raw = await response.text();
+        let payload: (PSLAnalysisResult & { error?: string }) | null = null;
         try {
-          const response = await fetch('/api/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              frontImageBase64: front.dataUrl,
-              frontMimeType: 'image/jpeg',
-              sideImageBase64: side.dataUrl,
-              sideMimeType: 'image/jpeg',
-              profile: profile ?? null,
-              previousAnalysisSummary: previousAnalysisSummary ?? null,
-              detectedFrontLandmarks: vision?.landmarks ?? null,
-              detectedProportions: vision?.proportions ?? null,
-            }),
-          });
-
-          const raw = await response.text();
-          let payload: (PSLAnalysisResult & { error?: string }) | null = null;
-          try {
-            payload = JSON.parse(raw) as PSLAnalysisResult & { error?: string };
-          } catch {
-            throw new Error(
-              'Analysis timed out or returned invalid data. Please tap Retry Analysis.',
-            );
-          }
-
-          if (!response.ok || payload.error) {
-            throw new Error(payload.error || 'Unable to analyze portraits.');
-          }
-
-          if (!payload.faceDetected) {
-            throw new Error(
-              payload.imageQualityWarning ||
-                'No clear human face detected across both portraits. Please retake with better lighting.',
-            );
-          }
-
-          return payload;
-        } finally {
-          window.clearTimeout(requestTimeout);
+          payload = JSON.parse(raw) as PSLAnalysisResult & { error?: string };
+        } catch {
+          throw new Error(
+            'Analysis timed out or returned invalid data. Please tap Retry Analysis.',
+          );
         }
-      })().catch((err) => {
-        analyzePromiseCache.delete(pairKey);
-        throw err;
-      });
 
-      if (analyzePromiseCache.size >= 12) {
-        const first = analyzePromiseCache.keys().next().value;
-        if (first) analyzePromiseCache.delete(first);
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error || 'Unable to analyze portraits.');
+        }
+
+        if (!payload.faceDetected) {
+          throw new Error(
+            payload.imageQualityWarning ||
+              'No clear human face detected across both portraits. Please retake with better lighting.',
+          );
+        }
+
+        resultCacheRef.current.set(clientCacheKey, payload);
+        onAnalysisCompleteRef.current(front, side, payload);
+      } catch (err) {
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        setErrorMessage(
+          isAbort
+            ? 'Analysis took longer than expected. Please tap Retry Analysis.'
+            : err instanceof Error
+              ? err.message
+              : 'Unable to analyze portraits.',
+        );
+        setMode('error');
+      } finally {
+        window.clearTimeout(requestTimeout);
       }
-      analyzePromiseCache.set(pairKey, promise);
-      return promise;
     },
-    [frontVision, previousAnalysisSummary, profile],
+    [previousAnalysisSummary, profile, stopCameraStream],
   );
 
-  // Immediately begin analysis in background as soon as BOTH photos pass validation
-  useEffect(() => {
-    if (frontPhoto && sidePhoto && !validatingSlot) {
-      void fetchAnalysisWithCache(frontPhoto, sidePhoto, frontVision).catch(() => {
-        // Error handled cleanly if user triggers runAnalysis
-      });
-    }
-  }, [frontPhoto, sidePhoto, validatingSlot, frontVision, fetchAnalysisWithCache]);
-
   const validateAndAssignPhoto = useCallback(
-    async (slot: CaptureSlot, photo: StoredPhoto) => {
+    async (slot: CaptureSlot, photo: StoredPhoto, autoStartIfReady = false) => {
       setValidatingSlot(slot);
       setSlotErrors((prev) => ({ ...prev, [slot]: undefined }));
       setErrorMessage('');
 
-      const cacheKey = `${slot}::${photoSig(photo.dataUrl)}`;
-
       try {
-        // Run validation + MediaPipe front landmark detection in parallel (no redundant waiting)
-        const cachedValidation = validationCache.get(cacheKey);
-        const [validationPayload, visionRes] = await Promise.all([
-          cachedValidation
-            ? Promise.resolve(cachedValidation)
-            : (async () => {
-                const res = await fetch('/api/validate-image', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    imageBase64: photo.dataUrl,
-                    mimeType: 'image/jpeg',
-                    expectedProfile: slot,
-                  }),
-                });
-                const raw = await res.text();
-                let payload: { valid?: boolean; message?: string; error?: string } = {};
-                try {
-                  payload = JSON.parse(raw) as typeof payload;
-                } catch {
-                  throw new Error('Validation server returned an unexpected response.');
-                }
-                if (!res.ok || payload.error) {
-                  throw new Error(
-                    payload.error || 'Could not validate photo. Please try again.',
-                  );
-                }
-                const out = { valid: Boolean(payload.valid), message: payload.message };
-                validationCache.set(cacheKey, out);
-                return out;
-              })(),
-          slot === 'front' ? detectFrontFaceLandmarks(photo.dataUrl) : Promise.resolve(null),
-        ]);
+        const res = await fetch('/api/validate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: photo.dataUrl,
+            mimeType: 'image/jpeg',
+            expectedProfile: slot,
+          }),
+        });
 
-        if (!validationPayload.valid) {
+        const raw = await res.text();
+        let payload: { valid?: boolean; message?: string; error?: string } = {};
+        try {
+          payload = JSON.parse(raw) as typeof payload;
+        } catch {
+          throw new Error('Validation server returned an unexpected response.');
+        }
+
+        if (!res.ok || payload.error) {
+          throw new Error(
+            payload.error || 'Could not validate photo. Please try again.',
+          );
+        }
+
+        if (!payload.valid) {
           const fallbackMsg =
             slot === 'front'
               ? 'Invalid Image. Please upload a clear front-facing photograph.'
               : 'Incorrect Profile. Please upload a genuine side-profile photograph.';
           setSlotErrors((prev) => ({
             ...prev,
-            [slot]: validationPayload.message || fallbackMsg,
+            [slot]: payload.message || fallbackMsg,
           }));
-          if (slot === 'front') {
-            setFrontPhoto(null);
-            setFrontVision(null);
-          }
+          if (slot === 'front') setFrontPhoto(null);
           if (slot === 'side') setSidePhoto(null);
           return;
         }
 
         if (slot === 'front') {
+          frontPhotoRef.current = photo;
           setFrontPhoto(photo);
-          setFrontVision(visionRes);
           setActiveSlot('side');
+          if (autoStartIfReady && sidePhotoRef.current) {
+            setValidatingSlot(null);
+            void runAnalysis(photo, sidePhotoRef.current);
+            return;
+          }
         } else {
+          sidePhotoRef.current = photo;
           setSidePhoto(photo);
+          if (autoStartIfReady && frontPhotoRef.current) {
+            setValidatingSlot(null);
+            void runAnalysis(frontPhotoRef.current, photo);
+            return;
+          }
         }
       } catch (err) {
         setSlotErrors((prev) => ({
@@ -418,33 +370,7 @@ export function CurvedCameraBox({
         setValidatingSlot(null);
       }
     },
-    [],
-  );
-
-  const runAnalysis = useCallback(
-    async (front: StoredPhoto, side: StoredPhoto) => {
-      clearMappingTimers();
-      stopCameraStream();
-      setMode('analyzing');
-      setErrorMessage('');
-
-      try {
-        const result = await fetchAnalysisWithCache(front, side, frontVision);
-        onAnalysisCompleteRef.current(front, side, result);
-      } catch (err) {
-        clearMappingTimers();
-        const isAbort = err instanceof Error && err.name === 'AbortError';
-        setErrorMessage(
-          isAbort
-            ? 'Analysis took longer than expected. Please tap Retry Analysis.'
-            : err instanceof Error
-              ? err.message
-              : 'Unable to analyze portraits.',
-        );
-        setMode('error');
-      }
-    },
-    [clearMappingTimers, fetchAnalysisWithCache, frontVision, stopCameraStream],
+    [runAnalysis],
   );
 
   const captureFrameFromVideo = () => {
@@ -469,12 +395,13 @@ export function CurvedCameraBox({
     ctx.drawImage(video, 0, 0, width, height);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
-    void validateAndAssignPhoto(activeSlot, { dataUrl, width, height });
+    void validateAndAssignPhoto(activeSlot, { dataUrl, width, height }, false);
   };
 
   const handleFileChange = async (
     slot: CaptureSlot,
     e: React.ChangeEvent<HTMLInputElement>,
+    autoStartIfReady = false,
   ) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -483,7 +410,7 @@ export function CurvedCameraBox({
     setActiveSlot(slot);
     try {
       const compressed = await compressFileToJpeg(file);
-      await validateAndAssignPhoto(slot, compressed);
+      await validateAndAssignPhoto(slot, compressed, autoStartIfReady);
     } catch (err) {
       setSlotErrors((prev) => ({
         ...prev,
@@ -493,11 +420,9 @@ export function CurvedCameraBox({
   };
 
   const handleReset = () => {
-    clearMappingTimers();
     stopCameraStream();
     setFrontPhoto(null);
     setSidePhoto(null);
-    setFrontVision(null);
     setSlotErrors({});
     setCameraNotice('');
     setErrorMessage('');
@@ -518,12 +443,12 @@ export function CurvedCameraBox({
       className="scroll-mt-24 mx-auto max-w-5xl px-4 pb-16 sm:px-6 sm:pb-24"
     >
       <div className="relative overflow-hidden rounded-[36px] sm:rounded-[48px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-5 sm:p-10 md:p-14 shadow-[0_24px_60px_-28px_rgba(10,10,10,0.22)]">
-        {/* Isolated inputs for FRONT & SIDE upload/selfie */}
+        {/* Isolated inputs for camera-mode and inline upload-mode */}
         <input
           id={frontUploadId}
           type="file"
           accept="image/*"
-          onChange={(e) => void handleFileChange('front', e)}
+          onChange={(e) => void handleFileChange('front', e, mode === 'idle')}
           className="sr-only"
         />
         <input
@@ -531,14 +456,14 @@ export function CurvedCameraBox({
           type="file"
           accept="image/*"
           capture="user"
-          onChange={(e) => void handleFileChange('front', e)}
+          onChange={(e) => void handleFileChange('front', e, false)}
           className="sr-only"
         />
         <input
           id={sideUploadId}
           type="file"
           accept="image/*"
-          onChange={(e) => void handleFileChange('side', e)}
+          onChange={(e) => void handleFileChange('side', e, mode === 'idle')}
           className="sr-only"
         />
         <input
@@ -546,7 +471,7 @@ export function CurvedCameraBox({
           type="file"
           accept="image/*"
           capture="user"
-          onChange={(e) => void handleFileChange('side', e)}
+          onChange={(e) => void handleFileChange('side', e, false)}
           className="sr-only"
         />
 
@@ -563,7 +488,7 @@ export function CurvedCameraBox({
               <span className="block">rating</span>
             </div>
 
-            <div className="mt-9 flex flex-col items-center gap-4">
+            <div className="mt-9 flex flex-col items-center gap-4 w-full max-w-sm">
               <button
                 type="button"
                 onClick={() => void openCamera('front')}
@@ -580,12 +505,109 @@ export function CurvedCameraBox({
 
               <button
                 type="button"
-                onClick={openUploadStage}
-                className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-[#0a0a0a]/75 hover:text-[#0a0a0a] underline underline-offset-4 transition-colors"
+                onClick={() => setInlineUploadOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-[#0a0a0a]/80 hover:text-[#0a0a0a] underline underline-offset-4 transition-colors"
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Or upload front &amp; side selfies</span>
               </button>
+
+              {/* Inline Two Stacked "+" Buttons (Front on top, Side directly below) */}
+              {inlineUploadOpen && (
+                <div className="mt-1 flex w-full flex-col gap-2.5 text-left">
+                  <label
+                    htmlFor={frontUploadId}
+                    className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                      frontPhoto
+                        ? 'border-emerald-700/40 bg-emerald-600/10'
+                        : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {frontPhoto ? (
+                        <img
+                          src={frontPhoto.dataUrl}
+                          alt="Front preview"
+                          className="h-9 w-9 rounded-xl object-cover shrink-0 border border-[#0a0a0a]/15"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/30 bg-white text-[#0a0a0a]">
+                          {validatingSlot === 'front' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                        </span>
+                      )}
+                      <div className="min-w-0">
+                        <span className="block text-xs font-semibold text-[#0a0a0a]">
+                          Front
+                        </span>
+                        <span className="block text-[11px] text-[#3f3f3c] truncate">
+                          {validatingSlot === 'front'
+                            ? 'Validating front portrait...'
+                            : frontPhoto
+                              ? 'Front profile validated'
+                              : 'Upload straight eye-level selfie'}
+                        </span>
+                      </div>
+                    </div>
+                    {frontPhoto && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
+                  </label>
+
+                  {slotErrors.front && (
+                    <p className="text-[11px] font-medium text-red-800 px-1">
+                      {slotErrors.front}
+                    </p>
+                  )}
+
+                  <label
+                    htmlFor={sideUploadId}
+                    className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                      sidePhoto
+                        ? 'border-emerald-700/40 bg-emerald-600/10'
+                        : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {sidePhoto ? (
+                        <img
+                          src={sidePhoto.dataUrl}
+                          alt="Side preview"
+                          className="h-9 w-9 rounded-xl object-cover shrink-0 border border-[#0a0a0a]/15"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/30 bg-white text-[#0a0a0a]">
+                          {validatingSlot === 'side' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                        </span>
+                      )}
+                      <div className="min-w-0">
+                        <span className="block text-xs font-semibold text-[#0a0a0a]">
+                          Side
+                        </span>
+                        <span className="block text-[11px] text-[#3f3f3c] truncate">
+                          {validatingSlot === 'side'
+                            ? 'Validating side profile...'
+                            : sidePhoto
+                              ? 'Side profile validated — starting scan...'
+                              : 'Upload 90° jawline & neck view'}
+                        </span>
+                      </div>
+                    </div>
+                    {sidePhoto && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
+                  </label>
+
+                  {slotErrors.side && (
+                    <p className="text-[11px] font-medium text-red-800 px-1">
+                      {slotErrors.side}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -601,14 +623,17 @@ export function CurvedCameraBox({
                 Opening camera
               </p>
               <p className="text-sm text-[#3f3f3c]">
-                Allow camera access when prompted, or switch immediately to the dual
-                front &amp; side uploader.
+                Allow camera access when prompted, or upload Front &amp; Side below.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={openUploadStage}
+                onClick={() => {
+                  stopCameraStream();
+                  setInlineUploadOpen(true);
+                  setMode('idle');
+                }}
                 className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-xs sm:text-sm font-medium text-[#f3f3f1]"
               >
                 <Upload className="h-4 w-4" />
@@ -738,7 +763,6 @@ export function CurvedCameraBox({
                 )}
               </div>
 
-              {/* Validation error alert right under the oval so user immediately sees why a capture failed */}
               {(slotErrors.front || slotErrors.side) && !bothValidated && (
                 <div className="flex max-w-xl items-start gap-2 rounded-2xl border border-red-700/30 bg-red-600/10 px-4 py-2.5 text-xs font-medium text-red-900">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -814,7 +838,7 @@ export function CurvedCameraBox({
               )}
             </div>
 
-            {/* TWO SIDE-BY-SIDE SLOTS (FRONT PROFILE & SIDE PROFILE — ALWAYS SIDE BY SIDE) */}
+            {/* TWO SIDE-BY-SIDE SLOTS (ALWAYS SIDE BY SIDE) */}
             <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
               {/* FRONT PROFILE SLOT */}
               <div
@@ -939,7 +963,6 @@ export function CurvedCameraBox({
               </div>
             </div>
 
-            {/* Bottom Analyze CTA for users scrolling up/down via manual uploads */}
             <div className="flex flex-col items-center gap-2.5 pt-1">
               <button
                 type="button"
@@ -973,30 +996,27 @@ export function CurvedCameraBox({
           </div>
         )}
 
-        {/* FACIAL STRUCTURE ANALYSIS LOADING STATE (ALWAYS SIDE-BY-SIDE, ZERO MOVING SCAN LINES) */}
+        {/* CLEAN SIDE-BY-SIDE ANALYZING VIEW (NO MOVING SCAN LINES) */}
         {mode === 'analyzing' && frontPhoto && sidePhoto && (
           <div className="flex flex-col items-center justify-center gap-5 py-4 text-center">
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                <span>FINALIZING STRUCTURAL RATINGS</span>
+                <span>ANALYZING FACIAL STRUCTURE &amp; RATINGS</span>
               </div>
 
               <h2 className="pomelli-display text-2xl sm:text-4xl text-[#0a0a0a]">
-                MAPPING YOUR FACIAL GEOMETRY
+                ANALYZING YOUR FACIAL GEOMETRY
               </h2>
             </div>
 
-            {/* Strictly side-by-side (grid-cols-2) on mobile AND desktop */}
             <div className="grid w-full max-w-3xl grid-cols-2 gap-2.5 sm:gap-5 items-start">
               <FrontMeasurementOverlay
                 photo={frontPhoto}
-                landmarks={frontVision?.landmarks ?? null}
-                showLines={Boolean(frontVision?.landmarks)}
-                revealStage={4}
+                landmarks={null}
+                showLines={false}
                 darkTheme={false}
               />
-
               <SideMeasurementOverlay
                 photo={sidePhoto}
                 landmarks={null}
@@ -1005,8 +1025,8 @@ export function CurvedCameraBox({
               />
             </div>
 
-            <p className="text-[11px] font-medium tracking-[0.06em] text-[#3f3f3c]">
-              Computing proportional ratios, skin assessment, and improvement plan...
+            <p className="text-xs font-medium text-[#3f3f3c]">
+              Detecting landmarks and computing your PSL breakdown...
             </p>
           </div>
         )}

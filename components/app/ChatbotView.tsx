@@ -6,10 +6,9 @@ import {
   ChevronDown,
   Loader2,
   Paperclip,
-  Sparkles,
   X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DataService, saveLightweightPreferences } from '@/lib/storage/dataService';
 import {
@@ -31,12 +30,12 @@ interface ChatbotViewProps {
 }
 
 const MODES: Array<{ key: ChatMode; label: string; description: string }> = [
-  { key: 'GENERAL', label: 'GENERAL', description: 'Complete AI with all scans & goals' },
-  { key: 'FEEDBACK', label: 'FEEDBACK', description: 'Facial structure, ratios & harmony' },
-  { key: 'SKINCARE', label: 'SKINCARE', description: 'Skin concerns, actives & routines' },
-  { key: 'DIET', label: 'DIET', description: 'Nutrition, macros & potassium/sodium' },
-  { key: 'EXERCISES', label: 'EXERCISES', description: 'Training, cardio & neck posture' },
-  { key: 'HAIRSTYLE', label: 'HAIRSTYLE', description: 'Cut framing & barber specifications' },
+  { key: 'GENERAL', label: 'GENERAL', description: 'All scans, ratios & goals' },
+  { key: 'FEEDBACK', label: 'FEEDBACK', description: 'Structure, ratios & harmony' },
+  { key: 'SKINCARE', label: 'SKINCARE', description: 'Concerns, actives & routine' },
+  { key: 'DIET', label: 'DIET', description: 'Macros & bloat balance' },
+  { key: 'EXERCISES', label: 'EXERCISES', description: 'Training, cardio & posture' },
+  { key: 'HAIRSTYLE', label: 'HAIRSTYLE', description: 'Cut framing & styling' },
 ];
 
 const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
@@ -75,25 +74,32 @@ const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
   ],
 };
 
-function startedStorageKey(ownerId: string, mode: ChatMode): string {
-  return `dt_chat_started_v1:${ownerId}:${mode}`;
+function getStartedModesStorageKey(ownerId: string): string {
+  return `dt_chat_started::${ownerId}`;
 }
 
-function readModeStartedFlag(ownerId: string, mode: ChatMode): boolean {
-  if (typeof window === 'undefined') return false;
+function readStartedModes(ownerId: string): Partial<Record<ChatMode, boolean>> {
+  if (typeof window === 'undefined') return {};
   try {
-    return window.localStorage.getItem(startedStorageKey(ownerId, mode)) === '1';
+    const raw = window.localStorage.getItem(getStartedModesStorageKey(ownerId));
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<Record<ChatMode, boolean>>;
   } catch {
-    return false;
+    return {};
   }
 }
 
-function writeModeStartedFlag(ownerId: string, mode: ChatMode): void {
+function writeStartedMode(ownerId: string, mode: ChatMode) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(startedStorageKey(ownerId, mode), '1');
+    const prev = readStartedModes(ownerId);
+    if (prev[mode]) return;
+    window.localStorage.setItem(
+      getStartedModesStorageKey(ownerId),
+      JSON.stringify({ ...prev, [mode]: true }),
+    );
   } catch {
-    // Ignore storage quota errors cleanly
+    // Ignore storage quota errors
   }
 }
 
@@ -169,9 +175,8 @@ export function ChatbotView({
 }: ChatbotViewProps) {
   const [mode, setMode] = useState<ChatMode>(initialMode ?? 'GENERAL');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [modeStarted, setModeStarted] = useState<boolean>(() =>
-    readModeStartedFlag(ownerId, initialMode ?? 'GENERAL'),
+  const [startedModes, setStartedModes] = useState<Partial<Record<ChatMode, boolean>>>(() =>
+    readStartedModes(ownerId),
   );
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<string | null>(null);
@@ -183,22 +188,22 @@ export function ChatbotView({
   const fileInputId = useId();
   const launchConsumedRef = useRef(false);
 
-  // Load persisted conversation history & independent mode started state whenever ownerId or mode changes
+  // Sync startedModes map when ownerId changes
+  useEffect(() => {
+    setStartedModes(readStartedModes(ownerId));
+  }, [ownerId]);
+
+  // Load persisted conversation history whenever ownerId or mode changes
   useEffect(() => {
     let cancelled = false;
     setErrorMsg('');
-    setHistoryLoaded(false);
-    const storedFlag = readModeStartedFlag(ownerId, mode);
-    setModeStarted(storedFlag);
-
     void DataService.getChatHistory(ownerId, mode).then((saved) => {
       if (!cancelled) {
         setMessages(saved);
         if (saved.length > 0) {
-          writeModeStartedFlag(ownerId, mode);
-          setModeStarted(true);
+          writeStartedMode(ownerId, mode);
+          setStartedModes((prev) => ({ ...prev, [mode]: true }));
         }
-        setHistoryLoaded(true);
       }
     });
     saveLightweightPreferences({ preferredChatMode: mode });
@@ -239,6 +244,7 @@ export function ChatbotView({
       overallRating: result.overallRating,
       pslTier: result.pslTier,
       faceShape: result.faceShape,
+      overallConfidence: result.overallConfidence,
       proportions: result.proportions,
       postureRating: result.postureRating,
       subScores: result.subScores,
@@ -252,11 +258,12 @@ export function ChatbotView({
     if (!trimmed || loading) return;
 
     const targetMode = customMode ?? mode;
-    writeModeStartedFlag(ownerId, targetMode);
-    if (targetMode !== mode) {
-      setMode(targetMode);
-    }
-    setModeStarted(true);
+    if (targetMode !== mode) setMode(targetMode);
+
+    // Hide quick actions permanently for this mode once a message is sent
+    writeStartedMode(ownerId, targetMode);
+    setStartedModes((prev) => ({ ...prev, [targetMode]: true }));
+    setModeMenuOpen(false);
 
     setErrorMsg('');
     setInput('');
@@ -358,75 +365,59 @@ export function ChatbotView({
   };
 
   const suggestions = QUICK_SUGGESTIONS[mode];
-  const showQuickSuggestions = historyLoaded && !modeStarted && messages.length === 0;
+  const showQuickSuggestions = !startedModes[mode] && messages.length === 0;
 
   return (
-    <div className="flex min-h-[calc(100vh-11.5rem)] flex-col">
-      {/* Minimal Header Directly Below Navbar */}
-      <div className="border-b border-white/10 pb-3">
-        <h1 className="text-lg sm:text-xl font-medium tracking-[-0.02em] text-[#f4f4f5]">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="flex flex-col min-h-[76vh] text-left"
+    >
+      {/* Top Heading Only — Open Left-Aligned Layout */}
+      <header className="pb-4 border-b border-white/10">
+        <h1 className="text-xl sm:text-2xl font-medium tracking-tight text-[#f4f4f5]">
           DARK TRIAD AI
         </h1>
-      </div>
+      </header>
 
-      {/* Scrollable Conversation Area */}
-      <div className="flex-1 overflow-y-auto py-5 space-y-5">
-        {showQuickSuggestions && (
-          <div className="flex min-h-[38vh] flex-col justify-end pb-2">
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void sendMessage(q)}
-                  className="rounded-full border border-white/15 bg-white/4 px-3.5 py-2 text-left text-xs text-[#d4d4d8] hover:border-white/32 hover:text-white transition-colors disabled:opacity-50"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
+      {/* Open Conversation Area (Completely Empty Before First Message) */}
+      <div className="flex-1 overflow-y-auto py-6 space-y-5">
         {messages.map((msg) => (
-          <motion.div
+          <div
             key={msg.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[90%] sm:max-w-[80%] px-4 py-3 ${
+              className={`max-w-[90%] sm:max-w-[78%] text-sm ${
                 msg.role === 'user'
-                  ? 'rounded-2xl border border-white/15 bg-[#232329] text-[#f4f4f5]'
-                  : 'border-l border-white/20 pl-4 text-[#e4e4e7]'
+                  ? 'rounded-2xl border border-white/18 bg-[#222227] px-4 py-3 text-[#f4f4f5]'
+                  : 'border-l border-white/18 pl-4 py-1 text-[#e4e4e7]'
               }`}
             >
               {msg.imageDataUrl && (
                 <img
                   src={msg.imageDataUrl}
                   alt="Attached photo"
-                  className="mb-3 max-h-72 w-auto rounded-xl border border-white/15 object-cover"
+                  className="mb-3 max-h-80 w-auto rounded-xl border border-white/15 object-cover"
                 />
               )}
               {renderFormattedText(msg.text)}
             </div>
-          </motion.div>
+          </div>
         ))}
 
         {loading && (
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2 text-xs text-[#a1a1aa]">
+            <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Analyzing in {mode} mode...</span>
+              <span>Thinking in {mode} mode...</span>
             </div>
           </div>
         )}
 
         {errorMsg && (
-          <div className="border-l-2 border-red-400/70 pl-3.5 py-1 text-xs text-red-200">
+          <div className="border-l-2 border-red-400/60 pl-3 py-1 text-xs text-red-200">
             {errorMsg}
           </div>
         )}
@@ -434,13 +425,30 @@ export function ChatbotView({
         <div ref={bottomRef} />
       </div>
 
-      {/* Bottom Input Composer Area with SWITCH MODE control */}
+      {/* Mode-Specific Quick Suggestions — Hidden Permanently Once Mode Has Any Message */}
+      {showQuickSuggestions && (
+        <div className="pb-4 flex flex-wrap gap-2">
+          {suggestions.map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={loading}
+              onClick={() => void sendMessage(q)}
+              className="rounded-full border border-white/15 bg-transparent px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Open Composer Footer */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void sendMessage(input);
         }}
-        className="border-t border-white/10 pt-3"
+        className="relative border-t border-white/12 pt-4"
       >
         <input
           id={fileInputId}
@@ -451,7 +459,7 @@ export function ChatbotView({
         />
 
         {attachment && (
-          <div className="mb-2.5 flex items-center gap-2">
+          <div className="mb-3 flex items-center gap-2">
             <div className="relative inline-block">
               <img
                 src={attachment}
@@ -471,7 +479,50 @@ export function ChatbotView({
           </div>
         )}
 
-        <div className="relative rounded-2xl border border-white/15 bg-[#18181b]/90 p-3">
+        {/* Proportionate Balanced Grid of All 6 Modes When SWITCH MODE Is Clicked */}
+        <AnimatePresence>
+          {modeMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="mb-3 grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-2xl border border-white/15 bg-[#19191d] p-2.5"
+            >
+              {MODES.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => {
+                    setMode(m.key);
+                    setModeMenuOpen(false);
+                  }}
+                  className={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-colors ${
+                    mode === m.key
+                      ? 'border-[#f4f4f5] bg-[#f4f4f5] text-[#0a0a0a]'
+                      : 'border-white/10 bg-[#141417] text-[#e4e4e7] hover:border-white/28'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-xs font-semibold tracking-[0.04em]">
+                      {m.label}
+                    </span>
+                    {mode === m.key && <Check className="h-3.5 w-3.5 shrink-0" />}
+                  </div>
+                  <span
+                    className={`mt-1 block text-[10px] leading-snug ${
+                      mode === m.key ? 'text-[#0a0a0a]/75' : 'text-[#8e8e95]'
+                    }`}
+                  >
+                    {m.description}
+                  </span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="rounded-2xl border border-white/18 bg-transparent p-3 focus-within:border-white/35 transition-colors">
           <textarea
             rows={2}
             value={input}
@@ -495,48 +546,19 @@ export function ChatbotView({
               <Paperclip className="h-4 w-4" />
             </label>
 
-            <div className="relative flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setModeMenuOpen((o) => !o)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#232327] px-3 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#2d2d33]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-transparent px-3.5 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:border-white/38 transition-colors"
               >
-                <Sparkles className="h-3 w-3 text-[#a1a1aa]" />
                 <span>SWITCH MODE · {mode}</span>
-                <ChevronDown className="h-3 w-3 text-[#a1a1aa]" />
+                <ChevronDown
+                  className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
+                    modeMenuOpen ? 'rotate-180' : ''
+                  }`}
+                />
               </button>
-
-              {modeMenuOpen && (
-                <div className="absolute right-10 bottom-11 z-50 w-64 rounded-2xl border border-white/15 bg-[#1e1e23] p-1.5 shadow-2xl">
-                  {MODES.map((m) => (
-                    <button
-                      key={m.key}
-                      type="button"
-                      onClick={() => {
-                        setMode(m.key);
-                        setModeMenuOpen(false);
-                      }}
-                      className={`flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2 text-left transition-colors ${
-                        mode === m.key
-                          ? 'bg-[#f4f4f5] text-[#0a0a0a]'
-                          : 'text-[#e4e4e7] hover:bg-white/6'
-                      }`}
-                    >
-                      <div>
-                        <span className="block text-xs font-semibold">{m.label}</span>
-                        <span
-                          className={`block text-[10px] ${
-                            mode === m.key ? 'text-[#0a0a0a]/70' : 'text-[#8e8e95]'
-                          }`}
-                        >
-                          {m.description}
-                        </span>
-                      </div>
-                      {mode === m.key && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               <button
                 type="submit"
@@ -550,6 +572,6 @@ export function ChatbotView({
           </div>
         </div>
       </form>
-    </div>
+    </motion.div>
   );
 }

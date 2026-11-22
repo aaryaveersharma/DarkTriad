@@ -360,6 +360,11 @@ export default function HomePage() {
         }}
         session={session}
         scanCount={analyses.length}
+        onBackToLanding={() => {
+          setIsUpdatingSelfie(false);
+          setActiveView('landing');
+        }}
+        onLogout={() => void handleLogout()}
       >
         {activeView === 'results' && (
           <ResultsView
@@ -397,11 +402,6 @@ export default function HomePage() {
               setActiveView(view);
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            onOpenChatbotWithPrompt={(mode, prompt) => {
-              setChatLaunchConfig({ mode, prompt });
-              setActiveView('chatbot');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
             onDailyProgressSaved={(entries) => setDailyProgress(entries)}
           />
         )}
@@ -431,10 +431,8 @@ export default function HomePage() {
           <ImprovementStepperView
             record={selectedRecord}
             onStartScan={handleUpdateSelfie}
-            onDiscussPlanInAI={() => {
-              setChatLaunchConfig({
-                mode: 'GENERAL',
-              });
+            onDiscussInChatbot={() => {
+              setChatLaunchConfig({ mode: 'GENERAL' });
               setActiveView('chatbot');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}

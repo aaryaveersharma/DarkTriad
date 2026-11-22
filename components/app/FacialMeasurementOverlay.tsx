@@ -2,15 +2,16 @@
 
 import { motion } from 'motion/react';
 import { useState } from 'react';
-import { FrontLandmarks, Point2D, SideLandmarks, StoredPhoto } from '@/lib/types';
 import {
-  validateFrontOverlaySegments,
-  validateSideOverlaySegments,
-} from '@/lib/vision/landmarkGeometry';
+  FrontLandmarks,
+  Point2D,
+  SideLandmarks,
+  StoredPhoto,
+} from '@/lib/types';
 
-function toPx(pt: Point2D | undefined | null, w: number, h: number): { x: number; y: number } | null {
+function toPx(pt: Point2D | undefined, w: number, h: number): { x: number; y: number } | null {
   if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return null;
-  if (pt.x < 0 || pt.x > 1000 || pt.y < 0 || pt.y > 1000) return null;
+  if (pt.x < 10 || pt.x > 990 || pt.y < 10 || pt.y > 990) return null;
   return { x: (pt.x / 1000) * w, y: (pt.y / 1000) * h };
 }
 
@@ -36,9 +37,9 @@ function EndpointLine({
   showDots?: boolean;
 }) {
   if (!a || !b || !visible) return null;
-  const strokeW = 1.15 * unit;
+  const strokeW = 1.2 * unit;
   const dotR = 2.3 * unit;
-  const haloR = 4.6 * unit;
+  const haloR = 4.5 * unit;
 
   return (
     <g>
@@ -53,7 +54,7 @@ function EndpointLine({
           strokeDasharray={dashed ? `${4 * unit} ${3 * unit}` : undefined}
           initial={{ pathLength: 0, opacity: 0 }}
           animate={{ pathLength: 1, opacity: 1 }}
-          transition={{ duration: 0.45, delay, ease: 'easeOut' }}
+          transition={{ duration: 0.4, delay, ease: 'easeOut' }}
         />
       ) : (
         <line
@@ -84,43 +85,24 @@ function EndpointLine({
   );
 }
 
-function PolyCurve({
-  points,
+function PolyContour({
+  pts,
   unit,
-  stroke = 'rgba(255,255,255,0.7)',
+  stroke = 'rgba(255,255,255,0.65)',
   dashed = false,
   closed = false,
-  animate = false,
 }: {
-  points: Array<{ x: number; y: number }>;
+  pts: Array<{ x: number; y: number } | null>;
   unit: number;
   stroke?: string;
   dashed?: boolean;
   closed?: boolean;
-  animate?: boolean;
 }) {
-  if (points.length < 2) return null;
-  const d =
-    points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-      .join(' ') + (closed ? ' Z' : '');
-
-  if (animate) {
-    return (
-      <motion.path
-        d={d}
-        fill="none"
-        stroke={stroke}
-        strokeWidth={1.15 * unit}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray={dashed ? `${4 * unit} ${3 * unit}` : undefined}
-        initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: 1 }}
-        transition={{ duration: 0.65, ease: 'easeInOut' }}
-      />
-    );
-  }
+  const valid = pts.filter((p): p is { x: number; y: number } => Boolean(p));
+  if (valid.length < 2) return null;
+  const d = `${valid
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ')}${closed ? ' Z' : ''}`;
 
   return (
     <path
@@ -155,61 +137,90 @@ export function FrontMeasurementOverlay({
   const h = naturalSize?.h || photo.height || 960;
   const unit = Math.max(w, h) / 480;
 
-  const validated = validateFrontOverlaySegments(landmarks);
+  // Facial height & thirds (Hairline -> Brow -> NoseBase -> ChinBottom, strictly ending at chinBottom)
+  const hairline = toPx(landmarks?.hairlineTop, w, h);
+  const foreheadL = toPx(landmarks?.foreheadLeft, w, h);
+  const foreheadR = toPx(landmarks?.foreheadRight, w, h);
+  const brow = toPx(landmarks?.browMid, w, h);
+  const nose = toPx(landmarks?.noseBase, w, h);
+  const chin = toPx(landmarks?.chinBottom, w, h);
+
+  // Brows
+  const lBrowIn = toPx(landmarks?.leftBrowInner, w, h);
+  const lBrowPk = toPx(landmarks?.leftBrowPeak, w, h);
+  const lBrowOut = toPx(landmarks?.leftBrowOuter, w, h);
+  const rBrowIn = toPx(landmarks?.rightBrowInner, w, h);
+  const rBrowPk = toPx(landmarks?.rightBrowPeak, w, h);
+  const rBrowOut = toPx(landmarks?.rightBrowOuter, w, h);
+
+  // Eyes (outer & inner corners + top/bottom)
+  const lOuter = toPx(landmarks?.leftEyeOuter, w, h);
+  const lInner = toPx(landmarks?.leftEyeInner, w, h);
+  const lTop = toPx(landmarks?.leftEyeTop, w, h);
+  const lBot = toPx(landmarks?.leftEyeBottom, w, h);
+  const rInner = toPx(landmarks?.rightEyeInner, w, h);
+  const rOuter = toPx(landmarks?.rightEyeOuter, w, h);
+  const rTop = toPx(landmarks?.rightEyeTop, w, h);
+  const rBot = toPx(landmarks?.rightEyeBottom, w, h);
+
+  // Nose bridge, tip, nostrils
+  const noseBridgeTop = toPx(landmarks?.noseBridgeTop, w, h);
+  const noseTip = toPx(landmarks?.noseTip, w, h);
+  const nostrilL = toPx(landmarks?.nostrilLeft, w, h);
+  const nostrilR = toPx(landmarks?.nostrilRight, w, h);
+
+  // Cheekbones (high malar prominence)
+  const cheekL = toPx(landmarks?.cheekLeft, w, h);
+  const cheekR = toPx(landmarks?.cheekRight, w, h);
+
+  // Lips
+  const mouthL = toPx(landmarks?.mouthLeft, w, h);
+  const mouthR = toPx(landmarks?.mouthRight, w, h);
+  const upperLipTop = toPx(landmarks?.upperLipTop, w, h);
+  const lowerLipBottom = toPx(landmarks?.lowerLipBottom, w, h);
+
+  // Jaw & chin contour
+  const jawL = toPx(landmarks?.jawLeft, w, h);
+  const jawR = toPx(landmarks?.jawRight, w, h);
+  const chinL = toPx(landmarks?.chinLeft, w, h);
+  const chinR = toPx(landmarks?.chinRight, w, h);
+
+  const outlinePts = (landmarks?.faceOutline ?? []).map((p) => toPx(p, w, h));
   const canRenderLandmarks = Boolean(landmarks) && showLines;
 
-  const outlinePts = validated.faceOutline
-    .map((p) => toPx(p, w, h))
-    .filter((p): p is { x: number; y: number } => Boolean(p));
+  // Validate facial thirds strictly stop at chin and do not extend downward
+  const thirdsValid = Boolean(
+    hairline &&
+      brow &&
+      nose &&
+      chin &&
+      hairline.y < brow.y &&
+      brow.y < nose.y &&
+      nose.y < chin.y,
+  );
 
-  const lOut = toPx(validated.eyes?.leftOuter, w, h);
-  const lIn = toPx(validated.eyes?.leftInner, w, h);
-  const rIn = toPx(validated.eyes?.rightInner, w, h);
-  const rOut = toPx(validated.eyes?.rightOuter, w, h);
-  const lPupil = toPx(validated.eyes?.leftPupil, w, h);
-  const rPupil = toPx(validated.eyes?.rightPupil, w, h);
-  const lUp = toPx(validated.eyes?.leftUpperLid, w, h);
-  const lLo = toPx(validated.eyes?.leftLowerLid, w, h);
-  const rUp = toPx(validated.eyes?.rightUpperLid, w, h);
-  const rLo = toPx(validated.eyes?.rightLowerLid, w, h);
+  // Cheekbones sanity guard: strictly below eye outer Y and above mouth Y
+  const cheeksValid = Boolean(
+    cheekL &&
+      cheekR &&
+      cheekL.x < cheekR.x &&
+      (!lOuter || cheekL.y > lOuter.y) &&
+      (!mouthL || cheekL.y < mouthL.y),
+  );
 
-  const lBrowPts = (validated.brows?.left ?? [])
-    .map((p) => toPx(p, w, h))
-    .filter((p): p is { x: number; y: number } => Boolean(p));
-  const rBrowPts = (validated.brows?.right ?? [])
-    .map((p) => toPx(p, w, h))
-    .filter((p): p is { x: number; y: number } => Boolean(p));
-
-  const noseBridgeTop = toPx(validated.nose?.bridgeTop, w, h);
-  const noseTip = toPx(validated.nose?.tip, w, h);
-  const noseBase = toPx(validated.nose?.base, w, h);
-  const nostrilL = toPx(validated.nose?.nostrilL, w, h);
-  const nostrilR = toPx(validated.nose?.nostrilR, w, h);
-
-  const hairline = toPx(validated.facialThirds?.hairline, w, h);
-  const brow = toPx(validated.facialThirds?.brow, w, h);
-  const thirdNose = toPx(validated.facialThirds?.noseBase, w, h);
-  const thirdChin = toPx(validated.facialThirds?.chin, w, h);
-
-  const cheekL = toPx(validated.cheekbones?.left, w, h);
-  const cheekR = toPx(validated.cheekbones?.right, w, h);
-
-  const mouthL = toPx(validated.lips?.mouthLeft, w, h);
-  const mouthR = toPx(validated.lips?.mouthRight, w, h);
-  const upperLip = toPx(validated.lips?.upperLip, w, h);
-  const lowerLip = toPx(validated.lips?.lowerLip, w, h);
-
-  const jawL = toPx(validated.jawline?.jawLeft, w, h);
-  const jawR = toPx(validated.jawline?.jawRight, w, h);
-  const chinL = toPx(validated.jawline?.chinLeft, w, h);
-  const chinR = toPx(validated.jawline?.chinRight, w, h);
-  const jawContourPts = (validated.jawline?.contour ?? [])
-    .map((p) => toPx(p, w, h))
-    .filter((p): p is { x: number; y: number } => Boolean(p));
+  // Lips sanity guard: strictly below noseBase and above chinBottom
+  const lipsValid = Boolean(
+    mouthL &&
+      mouthR &&
+      mouthL.x < mouthR.x &&
+      (!nose || mouthL.y > nose.y) &&
+      (!chin || mouthL.y < chin.y),
+  );
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-[20px] border ${
+      style={{ aspectRatio: `${w} / ${h}` }}
+      className={`relative w-full overflow-hidden rounded-2xl border ${
         darkTheme ? 'border-white/12 bg-[#0b0b0c]' : 'border-[#0a0a0a]/20 bg-[#141414]'
       }`}
     >
@@ -218,100 +229,190 @@ export function FrontMeasurementOverlay({
         alt="Front profile facial landmarks"
         onLoad={(e) => {
           const img = e.currentTarget;
-          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+          if (img.naturalWidth && img.naturalHeight) {
+            setNaturalSize((prev) =>
+              prev && prev.w === img.naturalWidth && prev.h === img.naturalHeight
+                ? prev
+                : { w: img.naturalWidth, h: img.naturalHeight },
+            );
           }
         }}
-        className="block w-full h-auto"
+        className="block h-full w-full object-fill"
       />
 
       {canRenderLandmarks && (
         <svg
           viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
           className="pointer-events-none absolute inset-0 h-full w-full"
           aria-hidden="true"
         >
-          {/* Facial Boundary Perimeter */}
-          {revealStage >= 1 && outlinePts.length >= 4 && (
-            <PolyCurve
-              points={outlinePts}
+          {/* Face perimeter */}
+          {revealStage >= 1 && (
+            <PolyContour
+              pts={outlinePts}
               unit={unit}
               stroke="rgba(255,255,255,0.42)"
               dashed
               closed
+            />
+          )}
+
+          {/* Forehead boundary */}
+          {revealStage >= 2 && (
+            <EndpointLine
+              a={foreheadL}
+              b={foreheadR}
+              unit={unit}
+              stroke="rgba(255,255,255,0.52)"
+              dashed
+              showDots={false}
+            />
+          )}
+
+          {/* Eyebrow contours */}
+          {revealStage >= 2 && (
+            <>
+              <PolyContour
+                pts={[lBrowOut, lBrowPk, lBrowIn]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.75)"
+              />
+              <PolyContour
+                pts={[rBrowIn, rBrowPk, rBrowOut]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.75)"
+              />
+            </>
+          )}
+
+          {/* Eye boundaries & outer-to-outer / inner-to-inner alignment */}
+          {revealStage >= 2 && (
+            <>
+              <EndpointLine
+                a={lOuter}
+                b={rOuter}
+                unit={unit}
+                stroke="rgba(255,255,255,0.92)"
+                animate={animateLines}
+              />
+              <EndpointLine
+                a={lOuter}
+                b={lInner}
+                unit={unit}
+                stroke="rgba(255,255,255,0.85)"
+                showDots={false}
+              />
+              <EndpointLine
+                a={rInner}
+                b={rOuter}
+                unit={unit}
+                stroke="rgba(255,255,255,0.85)"
+                showDots={false}
+              />
+              <PolyContour
+                pts={[lOuter, lTop, lInner, lBot]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.68)"
+                closed
+              />
+              <PolyContour
+                pts={[rInner, rTop, rOuter, rBot]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.68)"
+                closed
+              />
+            </>
+          )}
+
+          {/* Nose bridge & nostril width */}
+          {revealStage >= 3 && (
+            <>
+              <PolyContour
+                pts={[noseBridgeTop ?? brow, noseTip, nose]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.86)"
+              />
+              <EndpointLine
+                a={nostrilL}
+                b={nostrilR}
+                unit={unit}
+                stroke="rgba(255,255,255,0.8)"
+              />
+            </>
+          )}
+
+          {/* Cheekbone high zygomatic span */}
+          {revealStage >= 3 && cheeksValid && (
+            <EndpointLine
+              a={cheekL}
+              b={cheekR}
+              unit={unit}
+              stroke="rgba(255,255,255,0.82)"
+              dashed
               animate={animateLines}
             />
           )}
 
-          {/* Eyebrows */}
-          {revealStage >= 2 && lBrowPts.length >= 2 && (
-            <PolyCurve points={lBrowPts} unit={unit} stroke="rgba(255,255,255,0.75)" animate={animateLines} />
-          )}
-          {revealStage >= 2 && rBrowPts.length >= 2 && (
-            <PolyCurve points={rBrowPts} unit={unit} stroke="rgba(255,255,255,0.75)" animate={animateLines} />
-          )}
-
-          {/* Eyes: Inner & Outer Canthi, Lid Boundaries, Pupils & Full Eye Span */}
-          {revealStage >= 2 && lOut && lIn && rIn && rOut && (
+          {/* Upper/Lower lip boundaries */}
+          {revealStage >= 3 && lipsValid && (
             <>
               <EndpointLine
-                a={lOut}
-                b={rOut}
+                a={mouthL}
+                b={mouthR}
                 unit={unit}
-                stroke="rgba(255,255,255,0.88)"
-                visible
-                animate={animateLines}
+                stroke="rgba(255,255,255,0.85)"
               />
-              <EndpointLine a={lOut} b={lIn} unit={unit} stroke="rgba(255,255,255,0.95)" showDots={false} />
-              <EndpointLine a={rIn} b={rOut} unit={unit} stroke="rgba(255,255,255,0.95)" showDots={false} />
-              {lUp && lLo && (
-                <PolyCurve
-                  points={[lOut, lUp, lIn, lLo]}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.65)"
-                  closed
-                />
-              )}
-              {rUp && rLo && (
-                <PolyCurve
-                  points={[rIn, rUp, rOut, rLo]}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.65)"
-                  closed
-                />
-              )}
-              {[lPupil, rPupil].map(
-                (pt, idx) =>
-                  pt && (
-                    <circle
-                      key={`pupil-${idx}`}
-                      cx={pt.x}
-                      cy={pt.y}
-                      r={2.2 * unit}
-                      fill="#ffffff"
-                      stroke="#0a0a0a"
-                      strokeWidth={0.7 * unit}
-                    />
-                  ),
-              )}
+              <EndpointLine
+                a={upperLipTop}
+                b={lowerLipBottom}
+                unit={unit}
+                stroke="rgba(255,255,255,0.75)"
+                showDots={false}
+              />
             </>
           )}
 
-          {/* Facial Thirds (Hairline -> Brow -> Nose Base -> Chin Tip) */}
-          {revealStage >= 3 && hairline && brow && thirdNose && thirdChin && (
+          {/* Jawline & Chin Contour */}
+          {revealStage >= 4 && (
             <>
-              <EndpointLine
-                a={hairline}
-                b={thirdChin}
+              <PolyContour
+                pts={[jawL, chinL, chin, chinR, jawR]}
                 unit={unit}
-                stroke="rgba(255,255,255,0.45)"
+                stroke="rgba(255,255,255,0.92)"
+              />
+              <EndpointLine
+                a={jawL}
+                b={jawR}
+                unit={unit}
+                stroke="rgba(255,255,255,0.65)"
                 dashed
                 animate={animateLines}
               />
-              {[brow, thirdNose].map((pt, i) => (
-                <g key={`third-${i}`}>
-                  <circle cx={pt.x} cy={pt.y} r={4.2 * unit} fill="rgba(255,255,255,0.16)" />
+            </>
+          )}
+
+          {/* Facial Thirds vertical axis (Hairline -> Brow -> NoseBase -> ChinBottom, never neck) */}
+          {revealStage >= 4 && thirdsValid && (
+            <>
+              <EndpointLine
+                a={hairline}
+                b={chin}
+                unit={unit}
+                stroke="rgba(255,255,255,0.48)"
+                dashed
+              />
+              <EndpointLine
+                a={nose}
+                b={chin}
+                unit={unit}
+                stroke="rgba(255,255,255,0.9)"
+                showDots={false}
+              />
+              {[hairline, brow, nose, chin].map((pt, i) =>
+                pt ? (
                   <circle
+                    key={`third-${i}`}
                     cx={pt.x}
                     cy={pt.y}
                     r={2.2 * unit}
@@ -319,103 +420,7 @@ export function FrontMeasurementOverlay({
                     stroke="#0a0a0a"
                     strokeWidth={0.8 * unit}
                   />
-                </g>
-              ))}
-              <EndpointLine
-                a={thirdNose}
-                b={thirdChin}
-                unit={unit}
-                stroke="rgba(255,255,255,0.88)"
-                animate={animateLines}
-              />
-            </>
-          )}
-
-          {/* Nose Bridge, Tip & Nostril Span */}
-          {revealStage >= 3 && noseBase && (
-            <>
-              {noseBridgeTop && (
-                <EndpointLine
-                  a={noseBridgeTop}
-                  b={noseTip ?? noseBase}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.85)"
-                  showDots={false}
-                />
-              )}
-              {nostrilL && nostrilR && (
-                <EndpointLine
-                  a={nostrilL}
-                  b={nostrilR}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.85)"
-                />
-              )}
-            </>
-          )}
-
-          {/* Zygomatic Cheekbones */}
-          {revealStage >= 4 && cheekL && cheekR && (
-            <EndpointLine
-              a={cheekL}
-              b={cheekR}
-              unit={unit}
-              stroke="rgba(255,255,255,0.8)"
-              dashed
-              animate={animateLines}
-            />
-          )}
-
-          {/* Lips & Mouth Boundaries */}
-          {revealStage >= 4 && mouthL && mouthR && (
-            <>
-              <EndpointLine
-                a={mouthL}
-                b={mouthR}
-                unit={unit}
-                stroke="rgba(255,255,255,0.82)"
-                animate={animateLines}
-              />
-              {upperLip && lowerLip && (
-                <PolyCurve
-                  points={[mouthL, upperLip, mouthR, lowerLip]}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.58)"
-                  closed
-                />
-              )}
-            </>
-          )}
-
-          {/* Jawline Contour & Chin Span */}
-          {revealStage >= 4 && (
-            <>
-              {jawContourPts.length >= 5 && (
-                <PolyCurve
-                  points={jawContourPts}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.9)"
-                  animate={animateLines}
-                />
-              )}
-              {jawL && jawR && (
-                <EndpointLine
-                  a={jawL}
-                  b={jawR}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.75)"
-                  dashed
-                  animate={animateLines}
-                />
-              )}
-              {chinL && chinR && (
-                <EndpointLine
-                  a={chinL}
-                  b={chinR}
-                  unit={unit}
-                  stroke="rgba(255,255,255,0.82)"
-                  animate={animateLines}
-                />
+                ) : null,
               )}
             </>
           )}
@@ -445,37 +450,25 @@ export function SideMeasurementOverlay({
   const h = naturalSize?.h || photo.height || 960;
   const unit = Math.max(w, h) / 480;
 
-  const validated = validateSideOverlaySegments(landmarks);
+  const foreheadTop = toPx(landmarks?.foreheadTop, w, h);
+  const nasion = toPx(landmarks?.nasion, w, h);
+  const noseTip = toPx(landmarks?.noseTip, w, h);
+  const subnasale = toPx(landmarks?.subnasale, w, h);
+  const upperLip = toPx(landmarks?.upperLip, w, h);
+  const lowerLip = toPx(landmarks?.lowerLip, w, h);
+  const chinTip = toPx(landmarks?.chinTip, w, h);
+  const submentalVertex = toPx(landmarks?.submentalVertex, w, h);
+  const ear = toPx(landmarks?.earTragus, w, h);
+  const gonial = toPx(landmarks?.gonialCorner, w, h);
+  const neck = toPx(landmarks?.neckBase, w, h);
+
+  const outlinePts = (landmarks?.profileOutline ?? []).map((p) => toPx(p, w, h));
   const canRenderLandmarks = Boolean(landmarks) && showLines;
-
-  const outlinePts = validated.profileOutline
-    .map((p) => toPx(p, w, h))
-    .filter((p): p is { x: number; y: number } => Boolean(p));
-
-  const fTop = toPx(validated.foreheadProjection?.foreheadTop, w, h);
-  const fNasion = toPx(validated.foreheadProjection?.nasion, w, h);
-  const nBridge = toPx(validated.nasalBridge?.nasion, w, h);
-  const nTipBridge = toPx(validated.nasalBridge?.noseTip, w, h);
-  const nSub = toPx(validated.nasalProjection?.subnasale, w, h);
-  const nTipProj = toPx(validated.nasalProjection?.noseTip, w, h);
-
-  const lSub = toPx(validated.lipProjection?.subnasale, w, h);
-  const lUpper = toPx(validated.lipProjection?.upperLip, w, h);
-  const lLower = toPx(validated.lipProjection?.lowerLip, w, h);
-  const lChin = toPx(validated.lipProjection?.chinTip, w, h);
-
-  const ear = toPx(validated.jawAndRamus?.earTragus, w, h);
-  const gonial = toPx(validated.jawAndRamus?.gonialCorner, w, h);
-  const jawChin = toPx(validated.jawAndRamus?.chinTip, w, h);
-  const neck = toPx(validated.chinToNeck?.neckBase, w, h);
-
-  const lipCurvePts = [lSub, lUpper, lLower, lChin].filter(
-    (p): p is { x: number; y: number } => Boolean(p),
-  );
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-[20px] border ${
+      style={{ aspectRatio: `${w} / ${h}` }}
+      className={`relative w-full overflow-hidden rounded-2xl border ${
         darkTheme ? 'border-white/12 bg-[#0b0b0c]' : 'border-[#0a0a0a]/20 bg-[#141414]'
       }`}
     >
@@ -484,84 +477,86 @@ export function SideMeasurementOverlay({
         alt="Side profile facial and cervical landmarks"
         onLoad={(e) => {
           const img = e.currentTarget;
-          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+          if (img.naturalWidth && img.naturalHeight) {
+            setNaturalSize((prev) =>
+              prev && prev.w === img.naturalWidth && prev.h === img.naturalHeight
+                ? prev
+                : { w: img.naturalWidth, h: img.naturalHeight },
+            );
           }
         }}
-        className="block w-full h-auto"
+        className="block h-full w-full object-fill"
       />
 
       {canRenderLandmarks && (
         <svg
           viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
           className="pointer-events-none absolute inset-0 h-full w-full"
           aria-hidden="true"
         >
-          {/* Profile Silhouette Contour */}
-          {revealStage >= 1 && outlinePts.length >= 4 && (
-            <PolyCurve
-              points={outlinePts}
+          {/* Full profile contour */}
+          {revealStage >= 1 && (
+            <PolyContour
+              pts={outlinePts}
               unit={unit}
               stroke="rgba(255,255,255,0.48)"
               dashed
-              animate={animateLines}
             />
           )}
 
-          {/* Forehead Slope Projection */}
-          {revealStage >= 5 && fTop && fNasion && (
+          {/* Forehead projection */}
+          {revealStage >= 2 && (
             <EndpointLine
-              a={fTop}
-              b={fNasion}
-              unit={unit}
-              stroke="rgba(255,255,255,0.75)"
-              animate={animateLines}
-            />
-          )}
-
-          {/* Nasal Bridge & Projection */}
-          {revealStage >= 5 && nBridge && nTipBridge && (
-            <EndpointLine
-              a={nBridge}
-              b={nTipBridge}
-              unit={unit}
-              stroke="rgba(255,255,255,0.9)"
-              animate={animateLines}
-            />
-          )}
-          {revealStage >= 5 && nSub && nTipProj && (
-            <EndpointLine
-              a={nSub}
-              b={nTipProj}
-              unit={unit}
-              stroke="rgba(255,255,255,0.72)"
-              dashed
-              animate={animateLines}
-            />
-          )}
-
-          {/* Lip & Chin Projection */}
-          {revealStage >= 5 && lipCurvePts.length >= 2 && (
-            <PolyCurve
-              points={lipCurvePts}
+              a={foreheadTop}
+              b={nasion}
               unit={unit}
               stroke="rgba(255,255,255,0.85)"
               animate={animateLines}
             />
           )}
-          {revealStage >= 5 && lSub && lChin && (
-            <EndpointLine
-              a={lSub}
-              b={lChin}
-              unit={unit}
-              stroke="rgba(255,255,255,0.55)"
-              dashed
-              showDots={false}
-            />
+
+          {/* Nose projection */}
+          {revealStage >= 3 && (
+            <>
+              <EndpointLine
+                a={nasion}
+                b={noseTip}
+                unit={unit}
+                stroke="rgba(255,255,255,0.9)"
+                animate={animateLines}
+              />
+              <EndpointLine
+                a={subnasale}
+                b={noseTip}
+                unit={unit}
+                stroke="rgba(255,255,255,0.75)"
+                dashed
+              />
+            </>
           )}
 
-          {/* Ramus & Jawline Angle (Ear Tragus -> Gonial -> Chin Tip) */}
-          {revealStage >= 5 && ear && gonial && jawChin && (
+          {/* Lip & Chin projection */}
+          {revealStage >= 4 && (
+            <>
+              <PolyContour
+                pts={[subnasale, upperLip, lowerLip, chinTip]}
+                unit={unit}
+                stroke="rgba(255,255,255,0.86)"
+              />
+              <EndpointLine
+                a={subnasale}
+                b={chinTip}
+                unit={unit}
+                stroke="rgba(255,255,255,0.58)"
+                dashed
+                showDots={false}
+              />
+            </>
+          )}
+
+          {/* Ramus, Gonial Jaw Angle & Chin-to-Neck relationship */}
+          {revealStage >= 5 && (
             <>
               <EndpointLine
                 a={ear}
@@ -572,24 +567,37 @@ export function SideMeasurementOverlay({
               />
               <EndpointLine
                 a={gonial}
-                b={jawChin}
+                b={chinTip}
                 unit={unit}
-                stroke="rgba(255,255,255,0.96)"
+                stroke="rgba(255,255,255,0.95)"
                 animate={animateLines}
               />
+              {submentalVertex ? (
+                <>
+                  <EndpointLine
+                    a={chinTip}
+                    b={submentalVertex}
+                    unit={unit}
+                    stroke="rgba(255,255,255,0.82)"
+                  />
+                  <EndpointLine
+                    a={submentalVertex}
+                    b={neck}
+                    unit={unit}
+                    stroke="rgba(255,255,255,0.68)"
+                    dashed
+                  />
+                </>
+              ) : (
+                <EndpointLine
+                  a={ear}
+                  b={neck}
+                  unit={unit}
+                  stroke="rgba(255,255,255,0.65)"
+                  dashed
+                />
+              )}
             </>
-          )}
-
-          {/* Chin-to-Neck Submental / Cervical Line */}
-          {revealStage >= 5 && jawChin && gonial && neck && (
-            <EndpointLine
-              a={gonial}
-              b={neck}
-              unit={unit}
-              stroke="rgba(255,255,255,0.62)"
-              dashed
-              animate={animateLines}
-            />
           )}
         </svg>
       )}

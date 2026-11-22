@@ -1,13 +1,14 @@
 'use client';
 
 import { ArrowLeft, ArrowRight, MessageSquare } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useState } from 'react';
 import { FacialAnalysisRecord, ImproveStepKey } from '@/lib/types';
 
 interface ImprovementStepperViewProps {
   record: FacialAnalysisRecord | null;
   onStartScan: () => void;
-  onDiscussPlanInAI: () => void;
+  onDiscussInChatbot: () => void;
 }
 
 const STEPS: Array<{
@@ -23,24 +24,24 @@ const STEPS: Array<{
 export function ImprovementStepperView({
   record,
   onStartScan,
-  onDiscussPlanInAI,
+  onDiscussInChatbot,
 }: ImprovementStepperViewProps) {
   const [stepIdx, setStepIdx] = useState(0);
 
   if (!record) {
     return (
-      <div className="max-w-xl py-4 space-y-3 text-left">
-        <h1 className="text-2xl font-medium text-[#f4f4f5]">
+      <div className="py-6 text-left">
+        <h1 className="text-2xl font-medium tracking-tight text-[#f4f4f5]">
           Your 4-Step Improvement Plan Awaits
         </h1>
-        <p className="text-sm text-[#9e9ea6]">
+        <p className="mt-2 max-w-md text-sm text-[#9e9ea6]">
           Complete your front and side facial scan first to unlock customized
           Feedback, Skincare, Diet, Exercises, and Hairstyle specifications.
         </p>
         <button
           type="button"
           onClick={onStartScan}
-          className="mt-2 rounded-full bg-[#f4f4f5] px-6 py-2.5 text-sm font-medium text-[#0a0a0a]"
+          className="mt-6 rounded-full bg-[#f4f4f5] px-6 py-3 text-sm font-medium text-[#0a0a0a]"
         >
           Scan Your Face Now
         </button>
@@ -52,14 +53,19 @@ export function ImprovementStepperView({
   const activeStep = STEPS[stepIdx];
 
   return (
-    <div className="space-y-10">
-      {/* Header + Icon-Free Top-Left Step Buttons */}
-      <section className="space-y-5">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-10 text-left"
+    >
+      {/* Top-Left Open Header + Clean 4 Step Buttons (No Icons, No Extra Descriptions) */}
+      <section className="space-y-6">
         <div>
-          <p className="text-[11px] font-medium tracking-[0.12em] text-[#8e8e95] uppercase">
+          <p className="text-xs font-medium text-[#9e9ea6]">
             Personalized Improvement Protocol · {record.result.faceShape}
           </p>
-          <h1 className="mt-1 text-2xl sm:text-3xl font-medium tracking-tight text-[#f4f4f5]">
+          <h1 className="mt-1.5 text-2xl sm:text-3xl font-medium tracking-tight text-[#f4f4f5]">
             4-Step Ascension System
           </h1>
         </div>
@@ -72,13 +78,13 @@ export function ImprovementStepperView({
                 key={s.key}
                 type="button"
                 onClick={() => setStepIdx(idx)}
-                className={`flex items-start justify-start rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                className={`rounded-xl border px-3.5 py-3 text-left transition-colors ${
                   active
                     ? 'border-[#f4f4f5] bg-[#f4f4f5] text-[#0a0a0a]'
-                    : 'border-white/14 bg-transparent text-[#d4d4d8] hover:border-white/30'
+                    : 'border-white/15 bg-transparent text-[#d4d4d8] hover:border-white/35'
                 }`}
               >
-                <span className="text-xs font-semibold tracking-[0.02em]">
+                <span className="block text-xs font-semibold tracking-[0.02em]">
                   {s.title}
                 </span>
               </button>
@@ -87,75 +93,88 @@ export function ImprovementStepperView({
         </div>
       </section>
 
-      {/* Active Step Numbered Content */}
-      <section className="space-y-8 border-t border-white/10 pt-8">
+      {/* Open Numbered Step Content */}
+      <section className="border-t border-white/12 pt-8 space-y-8">
         {activeStep.key === 'FEEDBACK' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-medium text-[#f4f4f5]">
+            <h2 className="text-xl font-medium tracking-tight text-[#f4f4f5]">
               Step 1 — Structural Feedback &amp; Grooming Priorities
             </h2>
 
-            <ol className="space-y-0">
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+            <ol className="max-w-3xl">
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   1
                 </div>
-                <div className="min-w-0 flex-1 grid gap-6 sm:grid-cols-2 pt-0.5">
-                  <div>
-                    <span className="text-[11px] font-semibold tracking-[0.08em] text-emerald-300 uppercase">
-                      Strong Characteristics
-                    </span>
-                    <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-[#d4d4d8]">
-                      {plan.feedback.strongFeatures.map((item, i) => (
-                        <li key={i}>• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold tracking-[0.08em] text-amber-300 uppercase">
-                      Primary Weaknesses / Focus Areas
-                    </span>
-                    <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-[#d4d4d8]">
-                      {plan.feedback.weakFeatures.map((item, i) => (
-                        <li key={i}>• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Strong Characteristics
+                  </h3>
+                  <ul className="space-y-1.5 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.feedback.strongFeatures.map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
+                  </ul>
                 </div>
               </li>
 
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   2
                 </div>
-                <div className="min-w-0 flex-1 grid gap-6 sm:grid-cols-2 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-                  <div>
-                    <span className="block text-[11px] font-medium text-[#8e8e95] uppercase">
-                      Structural Pros &amp; Cons
-                    </span>
-                    <p className="mt-1.5">{plan.feedback.structuralProsCons}</p>
-                  </div>
-                  <div>
-                    <span className="block text-[11px] font-medium text-[#8e8e95] uppercase">
-                      Realistic Improvement Potential
-                    </span>
-                    <p className="mt-1.5">{plan.feedback.improvementPotential}</p>
-                  </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Primary Focus Areas
+                  </h3>
+                  <ul className="space-y-1.5 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.feedback.weakFeatures.map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
+                  </ul>
                 </div>
               </li>
 
-              <li className="relative flex gap-4">
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   3
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8] space-y-2">
-                  <span className="block text-[11px] font-medium text-[#8e8e95] uppercase">
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Structural Balance &amp; Realistic Potential
+                  </h3>
+                  <p className="text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.feedback.structuralProsCons}
+                  </p>
+                  <p className="text-sm leading-relaxed text-[#d4d4d8]">
+                    {plan.feedback.improvementPotential}
+                  </p>
+                </div>
+              </li>
+
+              <li className="relative flex gap-3.5 pb-0">
+                <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
+                  4
+                </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
                     Bloating, Hydration &amp; Grooming Habits
-                  </span>
-                  <p>{plan.feedback.bloatingPuffinessNotes}</p>
-                  <ul className="space-y-1 pt-1">
+                  </h3>
+                  <p className="text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.feedback.bloatingPuffinessNotes}
+                  </p>
+                  <ul className="space-y-1 text-sm text-[#d4d4d8] pt-1">
                     {plan.feedback.groomingImprovements.map((g, i) => (
                       <li key={i}>• {g}</li>
                     ))}
@@ -163,7 +182,7 @@ export function ImprovementStepperView({
                       <li key={i}>• {l}</li>
                     ))}
                   </ul>
-                  <p className="pt-1 text-[11px] text-[#9e9ea6]">
+                  <p className="pt-1 text-xs text-[#8e8e95]">
                     Gua Sha Note: {plan.feedback.guaShaGuidance}
                   </p>
                 </div>
@@ -174,90 +193,89 @@ export function ImprovementStepperView({
 
         {activeStep.key === 'SKINCARE' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-medium text-[#f4f4f5]">
+            <h2 className="text-xl font-medium tracking-tight text-[#f4f4f5]">
               Step 2 — Targeted Skincare Routine &amp; Products
             </h2>
 
-            <ol className="space-y-0">
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+            <ol className="max-w-3xl">
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   1
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 space-y-2.5">
-                  <span className="block text-[11px] font-medium text-[#8e8e95] uppercase">
-                    Observed Skin Priorities
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {plan.skincare.visibleConcerns.map((c, i) => (
-                      <span
-                        key={i}
-                        className="rounded-full border border-white/15 px-3 py-1 text-xs text-[#e4e4e7]"
-                      >
-                        {c}
-                      </span>
-                    ))}
-                  </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Visible Concerns
+                  </h3>
+                  <p className="text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.skincare.visibleConcerns.join(' · ')}
+                  </p>
                 </div>
               </li>
 
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   2
                 </div>
-                <div className="min-w-0 flex-1 grid gap-6 sm:grid-cols-2 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-                  <div>
-                    <span className="block text-[11px] font-semibold tracking-[0.08em] text-[#f4f4f5] uppercase">
-                      Morning Routine
-                    </span>
-                    <ol className="mt-2 space-y-1.5">
-                      {plan.skincare.morningRoutine.map((r, i) => (
-                        <li key={i}>
-                          {i + 1}. {r}
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                  <div>
-                    <span className="block text-[11px] font-semibold tracking-[0.08em] text-[#f4f4f5] uppercase">
-                      Night Routine
-                    </span>
-                    <ol className="mt-2 space-y-1.5">
-                      {plan.skincare.nightRoutine.map((r, i) => (
-                        <li key={i}>
-                          {i + 1}. {r}
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Morning Routine
+                  </h3>
+                  <ol className="space-y-1.5 text-sm leading-relaxed text-[#d4d4d8]">
+                    {plan.skincare.morningRoutine.map((r, i) => (
+                      <li key={i}>
+                        {i + 1}. {r}
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               </li>
 
-              <li className="relative flex gap-4">
+              <li className="relative flex gap-3.5 pb-7">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   3
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 space-y-4">
-                  <span className="block text-[11px] font-medium text-[#8e8e95] uppercase">
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Night Routine
+                  </h3>
+                  <ol className="space-y-1.5 text-sm leading-relaxed text-[#d4d4d8]">
+                    {plan.skincare.nightRoutine.map((r, i) => (
+                      <li key={i}>
+                        {i + 1}. {r}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </li>
+
+              <li className="relative flex gap-3.5 pb-0">
+                <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
+                  4
+                </div>
+                <div className="flex-1 pt-0.5 space-y-4">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
                     Recommended Formulations &amp; Usage
-                  </span>
-                  <div className="grid gap-6 md:grid-cols-2">
+                  </h3>
+                  <div className="divide-y divide-white/10">
                     {plan.skincare.products.map((prod, idx) => (
-                      <div
-                        key={idx}
-                        className="border-t border-white/10 pt-3 text-xs space-y-1.5"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-[10px] font-medium text-[#9e9ea6] uppercase">
-                              {prod.brand}
-                            </span>
-                            <h4 className="text-sm font-medium text-[#f4f4f5]">
-                              {prod.name}
-                            </h4>
-                          </div>
-                          <span className="text-[10px] text-[#9e9ea6]">
+                      <div key={idx} className="py-4 first:pt-0 space-y-1.5 text-xs">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <h4 className="text-sm font-medium text-[#f4f4f5]">
+                            {prod.brand} — {prod.name}
+                          </h4>
+                          <span className="text-[11px] text-[#9e9ea6]">
                             {prod.concernAddressed}
                           </span>
                         </div>
@@ -279,7 +297,7 @@ export function ImprovementStepperView({
                       </div>
                     ))}
                   </div>
-                  <div className="border-t border-white/10 pt-3 text-xs text-[#9e9ea6] space-y-1">
+                  <div className="pt-2 text-xs text-[#9e9ea6] space-y-1">
                     <p>
                       <strong className="text-[#e4e4e7]">Timeline:</strong>{' '}
                       {plan.skincare.expectedTimeline}
@@ -297,67 +315,87 @@ export function ImprovementStepperView({
 
         {activeStep.key === 'DIET' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-medium text-[#f4f4f5]">
+            <h2 className="text-xl font-medium tracking-tight text-[#f4f4f5]">
               Step 3 — Personalized Nutrition &amp; Anti-Bloat Strategy
             </h2>
 
-            <ol className="space-y-0">
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+            <p className="max-w-3xl text-sm leading-relaxed text-[#d4d4d8]">
+              {plan.diet.summary}
+            </p>
+
+            <ol className="max-w-3xl">
+              <li className="relative flex gap-3.5 pb-6">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   1
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 space-y-4">
-                  <p className="text-sm leading-relaxed text-[#d4d4d8]">
-                    {plan.diet.summary}
+                <div className="flex-1 pt-0.5">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Calorie Guidance
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.diet.calorieGuidance}
                   </p>
-                  <div className="grid gap-5 sm:grid-cols-3 border-t border-white/10 pt-4 text-xs">
-                    <div>
-                      <span className="block text-[10px] text-[#8e8e95] uppercase">
-                        Calorie Guidance
-                      </span>
-                      <p className="mt-1.5 text-[#f4f4f5] leading-relaxed">
-                        {plan.diet.calorieGuidance}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-[#8e8e95] uppercase">
-                        Protein Target
-                      </span>
-                      <p className="mt-1.5 text-[#f4f4f5] leading-relaxed">
-                        {plan.diet.proteinTarget}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-[#8e8e95] uppercase">
-                        Hydration &amp; Electrolytes
-                      </span>
-                      <p className="mt-1.5 text-[#f4f4f5] leading-relaxed">
-                        {plan.diet.hydrationTarget}
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </li>
 
-              <li className="relative flex gap-4">
+              <li className="relative flex gap-3.5 pb-6">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   2
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 text-xs text-[#d4d4d8] space-y-2">
-                  <span className="block text-[10px] font-medium text-[#8e8e95] uppercase">
+                <div className="flex-1 pt-0.5">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Protein Target
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.diet.proteinTarget}
+                  </p>
+                </div>
+              </li>
+
+              <li className="relative flex gap-3.5 pb-6">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
+                <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
+                  3
+                </div>
+                <div className="flex-1 pt-0.5">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Hydration &amp; Electrolytes
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.diet.hydrationTarget}
+                  </p>
+                  <p className="mt-2 text-xs text-[#d4d4d8]">
+                    <strong className="text-[#f4f4f5]">Potassium / Sodium Balance:</strong>{' '}
+                    {plan.diet.potassiumSodiumBalance}
+                  </p>
+                </div>
+              </li>
+
+              <li className="relative flex gap-3.5 pb-0">
+                <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
+                  4
+                </div>
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
                     Practical Meal Ideas
-                  </span>
-                  <ul className="space-y-1.5">
+                  </h3>
+                  <ul className="space-y-1.5 text-sm leading-relaxed text-[#d4d4d8]">
                     {plan.diet.balancedMealIdeas.map((m, i) => (
                       <li key={i}>• {m}</li>
                     ))}
                   </ul>
-                  <p className="pt-2 text-[#a1a1aa]">
-                    <strong className="text-[#e4e4e7]">Potassium / Sodium Balance:</strong>{' '}
-                    {plan.diet.potassiumSodiumBalance}
-                  </p>
-                  <p className="text-[11px] text-[#8e8e95]">{plan.diet.safetyNote}</p>
+                  <p className="pt-2 text-xs text-[#8e8e95]">{plan.diet.safetyNote}</p>
                 </div>
               </li>
             </ol>
@@ -365,98 +403,104 @@ export function ImprovementStepperView({
         )}
 
         {activeStep.key === 'EXERCISES' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-medium text-[#f4f4f5]">
+          <div className="space-y-7">
+            <h2 className="text-xl font-medium tracking-tight text-[#f4f4f5]">
               Step 4 — Training, Cardio &amp; Neck Posture Protocol
             </h2>
 
-            <ol className="space-y-0">
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+            <ol className="max-w-3xl">
+              <li className="relative flex gap-3.5 pb-6">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   1
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-                  <span className="block text-[10px] font-medium text-[#8e8e95] uppercase">
+                <div className="flex-1 pt-0.5">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
                     Cardio, Walking &amp; Running
-                  </span>
-                  <p className="mt-1.5">{plan.exercises.cardioPlan}</p>
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.exercises.cardioPlan}
+                  </p>
                 </div>
               </li>
 
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+              <li className="relative flex gap-3.5 pb-6">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+                />
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   2
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-                  <span className="block text-[10px] font-medium text-[#8e8e95] uppercase">
+                <div className="flex-1 pt-0.5">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
                     Resistance Training
-                  </span>
-                  <p className="mt-1.5">{plan.exercises.resistancePlan}</p>
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                    {plan.exercises.resistancePlan}
+                  </p>
                 </div>
               </li>
 
-              <li className="relative flex gap-4 pb-8">
-                <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+              <li className="relative flex gap-3.5 pb-0">
                 <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
                   3
                 </div>
-                <div className="min-w-0 flex-1 pt-0.5 space-y-4">
-                  <span className="block text-[10px] font-medium text-[#8e8e95] uppercase">
-                    Neck &amp; Posture Exercises (Sets, Reps &amp; Safety)
-                  </span>
-
-                  {/* Horizontal 1–4 row on desktop */}
-                  <div className="relative">
-                    <span
-                      aria-hidden="true"
-                      className="hidden lg:block absolute left-3 right-3 top-3.5 h-px bg-white/14"
-                    />
-                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                      {plan.exercises.neckExercises.slice(0, 4).map((ex, i) => (
-                        <div key={i} className="relative space-y-1.5 text-xs">
-                          <span className="relative z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-[11px] font-medium text-[#f4f4f5] tabular-nums">
-                            {i + 1}
-                          </span>
-                          <h4 className="pt-1 font-medium text-[#f4f4f5]">{ex.name}</h4>
-                          <p className="text-[11px] font-medium text-[#a1a1aa] tabular-nums">
-                            {ex.setsReps}
-                          </p>
-                          <p className="leading-relaxed text-[#9e9ea6]">{ex.safetyCue}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </li>
-
-              <li className="relative flex gap-4">
-                <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
-                  4
-                </div>
-                <div className="min-w-0 flex-1 pt-0.5 text-xs text-[#d4d4d8] space-y-2">
-                  <p>
-                    <strong className="text-[#f4f4f5]">Jaw &amp; Masseter Reality Check:</strong>{' '}
+                <div className="flex-1 pt-0.5 space-y-2">
+                  <h3 className="text-base font-medium text-[#f4f4f5]">
+                    Jaw, Masseter &amp; Recovery Guidance
+                  </h3>
+                  <p className="text-sm leading-relaxed text-[#d4d4d8]">
                     {plan.exercises.jawAndMasseterGuidance}
                   </p>
-                  <p className="text-[#9e9ea6]">
+                  <p className="text-xs text-[#9e9ea6]">
                     <strong className="text-[#e4e4e7]">Recovery &amp; Schedule:</strong>{' '}
                     {plan.exercises.recoveryAndSchedule}
                   </p>
                 </div>
               </li>
             </ol>
+
+            {/* Neck & Posture Exercises — Horizontal Numbered Grid (1 to 4) */}
+            <div className="space-y-4 pt-2">
+              <h3 className="text-base font-medium text-[#f4f4f5]">
+                Neck &amp; Posture Exercises (Sets, Reps &amp; Safety)
+              </h3>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {plan.exercises.neckExercises.map((ex, i) => (
+                  <div
+                    key={i}
+                    className="border-t border-white/12 pt-3 space-y-1.5 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-[11px] font-medium text-[#f4f4f5] tabular-nums">
+                        {i + 1}
+                      </span>
+                      <h4 className="font-medium text-[#f4f4f5] leading-snug">
+                        {ex.name}
+                      </h4>
+                    </div>
+                    <p className="text-[11px] font-medium text-[#d4d4d8]">
+                      {ex.setsReps}
+                    </p>
+                    <p className="leading-relaxed text-[#9e9ea6]">{ex.safetyCue}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Stepper Footer Controls */}
+        {/* Stepper Footer Navigation */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
           <button
             type="button"
             disabled={stepIdx === 0}
             onClick={() => setStepIdx((i) => Math.max(0, i - 1))}
-            className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-xs font-medium text-[#f4f4f5] disabled:opacity-40 hover:bg-white/6"
+            className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-transparent px-5 py-2.5 text-xs font-medium text-[#f4f4f5] hover:border-white/35 disabled:opacity-35"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             <span>Previous</span>
@@ -474,7 +518,7 @@ export function ImprovementStepperView({
           ) : (
             <button
               type="button"
-              onClick={onDiscussPlanInAI}
+              onClick={onDiscussInChatbot}
               className="inline-flex items-center gap-2 rounded-full bg-[#f4f4f5] px-6 py-2.5 text-xs font-semibold text-[#0a0a0a]"
             >
               <MessageSquare className="h-3.5 w-3.5" />
@@ -484,51 +528,76 @@ export function ImprovementStepperView({
         </div>
       </section>
 
-      {/* Open Left-Aligned Hairstyle Recommendations Section */}
-      <section className="border-t border-white/10 pt-8 space-y-6">
+      {/* Open Numbered Hair Framing Recommendation (No Outer Card, No Broken Preview Button) */}
+      <section className="border-t border-white/12 pt-8 space-y-5">
         <div>
-          <p className="text-[11px] font-medium tracking-[0.12em] text-[#8e8e95] uppercase">
+          <p className="text-xs font-medium text-[#9e9ea6]">
             Hair Framing Recommendation
           </p>
           <h2 className="mt-1 text-xl font-medium text-[#f4f4f5]">
             {plan.hairstyle.recommendedStyle}
           </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#a1a1aa]">
+            {plan.hairstyle.whyItSuits}
+          </p>
         </div>
 
-        <ol className="space-y-0">
-          <li className="relative flex gap-4 pb-7">
-            <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+        <ol className="max-w-3xl">
+          <li className="relative flex gap-3.5 pb-6">
+            <span
+              aria-hidden="true"
+              className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+            />
             <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
               1
             </div>
-            <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-              <strong className="block text-[#f4f4f5] mb-1">Why It Suits Your Geometry</strong>
-              {plan.hairstyle.whyItSuits}
+            <div className="flex-1 pt-0.5">
+              <h3 className="text-base font-medium text-[#f4f4f5]">
+                Barber Specifications
+              </h3>
+              <p className="mt-1 text-sm leading-relaxed text-[#d4d4d8]">
+                {plan.hairstyle.barberInstructions}
+              </p>
             </div>
           </li>
 
-          <li className="relative flex gap-4 pb-7">
-            <span aria-hidden="true" className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14" />
+          <li className="relative flex gap-3.5 pb-6">
+            {plan.hairstyle.alternativeStyles?.length > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute left-[13px] top-8 bottom-0 w-px bg-white/14"
+              />
+            )}
             <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
               2
             </div>
-            <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-              <strong className="block text-[#f4f4f5] mb-1">Barber Specifications</strong>
-              {plan.hairstyle.barberInstructions}
+            <div className="flex-1 pt-0.5">
+              <h3 className="text-base font-medium text-[#f4f4f5]">
+                Daily Styling
+              </h3>
+              <p className="mt-1 text-sm leading-relaxed text-[#d4d4d8]">
+                {plan.hairstyle.stylingRoutine}
+              </p>
             </div>
           </li>
 
-          <li className="relative flex gap-4">
-            <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
-              3
-            </div>
-            <div className="min-w-0 flex-1 pt-0.5 text-xs leading-relaxed text-[#d4d4d8]">
-              <strong className="block text-[#f4f4f5] mb-1">Daily Styling</strong>
-              {plan.hairstyle.stylingRoutine}
-            </div>
-          </li>
+          {plan.hairstyle.alternativeStyles?.length > 0 && (
+            <li className="relative flex gap-3.5 pb-0">
+              <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/22 bg-[#1c1c20] text-xs font-medium text-[#f4f4f5] tabular-nums">
+                3
+              </div>
+              <div className="flex-1 pt-0.5">
+                <h3 className="text-base font-medium text-[#f4f4f5]">
+                  Alternative Styles
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-[#a1a1aa]">
+                  {plan.hairstyle.alternativeStyles.join(' · ')}
+                </p>
+              </div>
+            </li>
+          )}
         </ol>
       </section>
-    </div>
+    </motion.div>
   );
 }
