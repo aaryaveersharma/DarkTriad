@@ -7,6 +7,7 @@ import {
   User,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import { AppView, AuthSession } from '@/lib/types';
 
 interface StitchShellProps {
@@ -36,14 +37,68 @@ export function StitchShell({
   children,
 }: StitchShellProps) {
   const isChat = activeView === 'chatbot';
+  const [vvBox, setVvBox] = useState<{ top: number; height: number } | null>(null);
+
+  // Strictly lock document scroll & sync to visualViewport when in chatbot so mobile keyboard / scroll never pushes header or input bar
+  useEffect(() => {
+    if (!isChat) {
+      setVvBox(null);
+      return;
+    }
+
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    window.scrollTo(0, 0);
+
+    const syncViewport = () => {
+      window.scrollTo(0, 0);
+      const vv = window.visualViewport;
+      if (vv) {
+        setVvBox({
+          top: Math.max(0, Math.round(vv.offsetTop)),
+          height: Math.round(vv.height),
+        });
+      }
+    };
+
+    syncViewport();
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', syncViewport);
+    vv?.addEventListener('scroll', syncViewport);
+    window.addEventListener('resize', syncViewport);
+
+    return () => {
+      vv?.removeEventListener('resize', syncViewport);
+      vv?.removeEventListener('scroll', syncViewport);
+      window.removeEventListener('resize', syncViewport);
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+  }, [isChat]);
 
   return (
     <div
+      style={
+        isChat
+          ? {
+              top: vvBox ? `${vvBox.top}px` : 0,
+              height: vvBox ? `${vvBox.height}px` : '100dvh',
+            }
+          : undefined
+      }
       className={`stitch-dark-bg flex flex-col ${
-        isChat ? 'h-[100dvh] overflow-hidden overscroll-none' : 'min-h-screen'
+        isChat
+          ? 'fixed inset-x-0 z-30 overflow-hidden overscroll-none'
+          : 'min-h-screen'
       }`}
     >
-      {/* Clean, Minimal Top Bar: Dark Triad wordmark (without AI) + Single Profile Icon (properly inset) */}
+      {/* Clean, Minimal Top Bar: Dark Triad wordmark (without AI) + Single Profile Icon */}
       <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <button
@@ -78,28 +133,30 @@ export function StitchShell({
       <main
         className={`mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6 ${
           isChat
-            ? 'min-h-0 flex flex-col pt-2 pb-[60px] overflow-hidden sm:pt-3'
+            ? 'min-h-0 flex flex-col pt-2 pb-1.5 overflow-hidden sm:pt-3'
             : 'pt-5 pb-24 sm:pt-7'
         }`}
       >
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
+            initial={isChat ? { opacity: 0 } : { opacity: 0, y: 8 }}
+            animate={isChat ? { opacity: 1 } : { opacity: 1, y: 0 }}
+            exit={isChat ? { opacity: 0 } : { opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className={isChat ? 'flex-1 min-h-0 flex flex-col' : undefined}
+            className={isChat ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : undefined}
           >
             {children}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Fixed Bottom Navigation Bar (Icons Only: Home, Chatbot, Rankings) */}
+      {/* Bottom Navigation Bar (Pinned inside flex flow on chat, fixed bottom on scrollable pages) */}
       <nav
         aria-label="Primary dashboard navigation"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#121213]/92 backdrop-blur-xl"
+        className={`border-t border-white/10 bg-[#121213]/92 backdrop-blur-xl ${
+          isChat ? 'shrink-0 z-40' : 'fixed inset-x-0 bottom-0 z-40'
+        }`}
       >
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-around px-6">
           {BOTTOM_NAV_ITEMS.map((item) => {

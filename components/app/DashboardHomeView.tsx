@@ -263,7 +263,7 @@ export function DashboardHomeView({
   }> = [
     {
       title: 'DARK TRIAD AI Chatbot',
-      subtitle: 'Ask 6 specialized modes synced with your scans and daily tracker',
+      subtitle: 'Ask anything synced with your scans, routines, and daily tracker',
       tag: 'AI CHAT',
       icon: MessageSquare,
       onClick: () => onNavigate('chatbot'),

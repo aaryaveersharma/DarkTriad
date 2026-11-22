@@ -1,17 +1,9 @@
 'use client';
 
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  Loader2,
-  Plus,
-  X,
-} from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
+import { ArrowUp, Loader2, Plus, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
-import { DataService, saveLightweightPreferences } from '@/lib/storage/dataService';
+import { DataService } from '@/lib/storage/dataService';
 import {
   ChatMessage,
   ChatMode,
@@ -30,89 +22,15 @@ interface ChatbotViewProps {
   onConsumedLaunchTrigger?: () => void;
 }
 
-// Modes in exact specified order: GENERAL, SKINCARE, DIET, EXERCISES, FEEDBACK, HAIRSTYLE
-const MODES: ChatMode[] = [
-  'GENERAL',
-  'SKINCARE',
-  'DIET',
-  'EXERCISES',
-  'FEEDBACK',
-  'HAIRSTYLE',
+const UNIFIED_CHAT_MODE: ChatMode = 'GENERAL';
+
+const OVERALL_QUICK_SUGGESTIONS: string[] = [
+  'What should I improve about my face?',
+  'Build my morning & night skincare routine',
+  'How many calories & protein should I eat?',
+  'Create my workout & jawline routine',
+  'Which hairstyle suits my face shape?',
 ];
-
-const MODE_LABELS: Record<ChatMode, string> = {
-  GENERAL: 'General',
-  SKINCARE: 'Skincare',
-  DIET: 'Diet',
-  EXERCISES: 'Exercises',
-  FEEDBACK: 'Feedback',
-  HAIRSTYLE: 'Hairstyle',
-};
-
-const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
-  GENERAL: [
-    'What should I improve about my face?',
-    'How many calories should I eat according to my goals?',
-    'How many miles should I run?',
-    'How can I improve my jawline?',
-    'Which skincare products should I use?',
-  ],
-  SKINCARE: [
-    'Build my morning skincare routine.',
-    'What ingredients should I use?',
-    'How can I improve my skin texture?',
-  ],
-  DIET: [
-    'Calculate my daily calorie requirements.',
-    'How much protein should I consume?',
-    'Create a diet based on my fitness goals.',
-  ],
-  EXERCISES: [
-    'Create my weekly workout routine.',
-    'How much cardio should I do?',
-    'How can I improve my overall fitness?',
-  ],
-  FEEDBACK: [
-    'What are my strongest facial features?',
-    'Explain my weakest facial characteristics.',
-    'How can I improve my overall facial appearance?',
-  ],
-  HAIRSTYLE: [
-    'Which hairstyle suits my face the best?',
-    'Explain why this hairstyle suits me.',
-    'What should I tell my barber?',
-    'How should I style my hair?',
-  ],
-};
-
-function getStartedModesStorageKey(ownerId: string): string {
-  return `dt_chat_started::${ownerId}`;
-}
-
-function readStartedModes(ownerId: string): Partial<Record<ChatMode, boolean>> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(getStartedModesStorageKey(ownerId));
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<Record<ChatMode, boolean>>;
-  } catch {
-    return {};
-  }
-}
-
-function writeStartedMode(ownerId: string, mode: ChatMode) {
-  if (typeof window === 'undefined') return;
-  try {
-    const prev = readStartedModes(ownerId);
-    if (prev[mode]) return;
-    window.localStorage.setItem(
-      getStartedModesStorageKey(ownerId),
-      JSON.stringify({ ...prev, [mode]: true }),
-    );
-  } catch {
-    // Ignore storage quota errors
-  }
-}
 
 function compressAttachment(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -147,18 +65,12 @@ export function ChatbotView({
   profile,
   latestRecord,
   dailyProgress,
-  initialMode,
   initialPrompt,
   onConsumedLaunchTrigger,
 }: ChatbotViewProps) {
-  const [mode, setMode] = useState<ChatMode>(initialMode ?? 'GENERAL');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [startedModes, setStartedModes] = useState<Partial<Record<ChatMode, boolean>>>(() =>
-    readStartedModes(ownerId),
-  );
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<string | null>(null);
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -167,26 +79,21 @@ export function ChatbotView({
   const launchConsumedRef = useRef(false);
 
   useEffect(() => {
-    setStartedModes(readStartedModes(ownerId));
-  }, [ownerId]);
+    window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setErrorMsg('');
-    void DataService.getChatHistory(ownerId, mode).then((saved) => {
+    void DataService.getChatHistory(ownerId, UNIFIED_CHAT_MODE).then((saved) => {
       if (!cancelled) {
         setMessages(saved);
-        if (saved.length > 0) {
-          writeStartedMode(ownerId, mode);
-          setStartedModes((prev) => ({ ...prev, [mode]: true }));
-        }
       }
     });
-    saveLightweightPreferences({ preferredChatMode: mode });
     return () => {
       cancelled = true;
     };
-  }, [ownerId, mode]);
+  }, [ownerId]);
 
   useEffect(() => {
     const el = messagesScrollRef.current;
@@ -231,16 +138,9 @@ export function ChatbotView({
     };
   };
 
-  const sendMessage = async (textRaw: string, customMode?: ChatMode) => {
+  const sendMessage = async (textRaw: string) => {
     const trimmed = textRaw.trim();
     if (!trimmed || loading) return;
-
-    const targetMode = customMode ?? mode;
-    if (targetMode !== mode) setMode(targetMode);
-
-    writeStartedMode(ownerId, targetMode);
-    setStartedModes((prev) => ({ ...prev, [targetMode]: true }));
-    setModeMenuOpen(false);
 
     setErrorMsg('');
     setInput('');
@@ -252,15 +152,13 @@ export function ChatbotView({
       role: 'user',
       text: trimmed,
       imageDataUrl: currentAttach ?? undefined,
-      mode: targetMode,
+      mode: UNIFIED_CHAT_MODE,
       createdAt: new Date().toISOString(),
     };
 
-    const existingList =
-      targetMode === mode ? messages : await DataService.getChatHistory(ownerId, targetMode);
-    const updatedList = [...existingList, userMsg];
+    const updatedList = [...messages, userMsg];
     setMessages(updatedList);
-    await DataService.saveChatHistory(ownerId, targetMode, updatedList);
+    await DataService.saveChatHistory(ownerId, UNIFIED_CHAT_MODE, updatedList);
 
     setLoading(true);
     try {
@@ -268,9 +166,9 @@ export function ChatbotView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode: targetMode,
+          mode: UNIFIED_CHAT_MODE,
           message: trimmed,
-          history: existingList.slice(-10).map((m) => ({
+          history: messages.slice(-10).map((m) => ({
             role: m.role,
             text: m.text,
           })),
@@ -303,12 +201,12 @@ export function ChatbotView({
         id: crypto.randomUUID(),
         role: 'assistant',
         text: payload.reply,
-        mode: targetMode,
+        mode: UNIFIED_CHAT_MODE,
         createdAt: new Date().toISOString(),
       };
       const finalList = [...updatedList, assistantMsg];
       setMessages(finalList);
-      await DataService.saveChatHistory(ownerId, targetMode, finalList);
+      await DataService.saveChatHistory(ownerId, UNIFIED_CHAT_MODE, finalList);
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : 'Network error talking to DARK TRIAD AI.',
@@ -322,7 +220,7 @@ export function ChatbotView({
     if (launchConsumedRef.current) return;
     if (initialPrompt) {
       launchConsumedRef.current = true;
-      void sendMessage(initialPrompt, initialMode ?? 'GENERAL').finally(() => {
+      void sendMessage(initialPrompt).finally(() => {
         onConsumedLaunchTrigger?.();
       });
     }
@@ -341,9 +239,7 @@ export function ChatbotView({
     }
   };
 
-  const suggestions = QUICK_SUGGESTIONS[mode];
-  const showQuickSuggestions = !startedModes[mode] && messages.length === 0;
-  const showGreeting = messages.length === 0 && !loading;
+  const showEmptyIntro = messages.length === 0 && !loading;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full w-full text-left overflow-hidden">
@@ -352,7 +248,7 @@ export function ChatbotView({
         ref={messagesScrollRef}
         className="flex-1 overflow-y-auto overscroll-contain px-0.5 py-1 space-y-4 min-h-0"
       >
-        {showGreeting && (
+        {showEmptyIntro && (
           <div className="min-h-full flex flex-col items-center justify-center pb-12 sm:pb-16 px-3 text-center">
             <h2 className="max-w-lg text-balance text-[clamp(1.6rem,3.6vw,2.75rem)] font-medium leading-[1.15] tracking-[-0.035em] text-[#f4f4f5]">
               Hey, How are you feeling today?
@@ -401,17 +297,25 @@ export function ChatbotView({
                           {children}
                         </h5>
                       ),
-                      p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
+                      p: ({ children }) => (
+                        <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>
+                      ),
                       strong: ({ children }) => (
                         <strong className="font-semibold text-white">{children}</strong>
                       ),
                       ul: ({ children }) => (
-                        <ul className="my-1.5 space-y-1 pl-4 list-disc text-[#d4d4d8]">{children}</ul>
+                        <ul className="my-1.5 space-y-1 pl-4 list-disc text-[#d4d4d8]">
+                          {children}
+                        </ul>
                       ),
                       ol: ({ children }) => (
-                        <ol className="my-1.5 space-y-1 pl-4 list-decimal text-[#d4d4d8]">{children}</ol>
+                        <ol className="my-1.5 space-y-1 pl-4 list-decimal text-[#d4d4d8]">
+                          {children}
+                        </ol>
                       ),
-                      li: ({ children }) => <li className="pl-0.5 leading-relaxed">{children}</li>,
+                      li: ({ children }) => (
+                        <li className="pl-0.5 leading-relaxed">{children}</li>
+                      ),
                     }}
                   >
                     {msg.text}
@@ -426,7 +330,7 @@ export function ChatbotView({
           <div className="flex justify-start">
             <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa] py-1 pl-0.5">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Thinking in {MODE_LABELS[mode]} mode...</span>
+              <span>Thinking...</span>
             </div>
           </div>
         )}
@@ -438,10 +342,10 @@ export function ChatbotView({
         )}
       </div>
 
-      {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
-      {showQuickSuggestions && (
+      {/* Region 2: Fixed quick-actions overall area right above composer (disappears after first prompt) */}
+      {showEmptyIntro && (
         <div className="shrink-0 pt-1 pb-2 flex flex-wrap gap-1.5">
-          {suggestions.map((q) => (
+          {OVERALL_QUICK_SUGGESTIONS.map((q) => (
             <button
               key={q}
               type="button"
@@ -455,13 +359,13 @@ export function ChatbotView({
         </div>
       )}
 
-      {/* Region 3: Fixed circular/pill composer at the bottom */}
+      {/* Region 3: Fixed circular/pill composer locked at bottom */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void sendMessage(input);
         }}
-        className="shrink-0 relative pt-1.5 pb-1"
+        className="shrink-0 relative pt-1 pb-1"
       >
         <input
           id={fileInputId}
@@ -508,64 +412,18 @@ export function ChatbotView({
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onBlur={() => {
+              window.scrollTo(0, 0);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 void sendMessage(input);
               }
             }}
-            placeholder={`Ask Dark Triad AI (${MODE_LABELS[mode]})...`}
+            placeholder="Ask anything"
             className="flex-1 min-w-0 resize-none bg-transparent py-1.5 px-1 text-sm text-[#f4f4f5] placeholder:text-[#8e8e95] focus:outline-none leading-snug max-h-24 overflow-y-auto"
           />
-
-          {/* Compact Modes dropdown trigger opening upward */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setModeMenuOpen((o) => !o)}
-              className="inline-flex h-8 items-center gap-1 rounded-full border border-white/14 bg-white/[0.04] px-2.5 text-xs font-medium text-[#e4e4e7] hover:border-white/30 hover:text-white transition-colors"
-            >
-              <span>Modes</span>
-              <ChevronDown
-                className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
-                  modeMenuOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            <AnimatePresence>
-              {modeMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                  className="absolute bottom-full right-0 mb-2.5 z-50 w-40 overflow-hidden rounded-xl border border-white/20 bg-[#161619] p-1 shadow-2xl backdrop-blur-md"
-                >
-                  <div className="flex flex-col divide-y divide-white/6">
-                    {MODES.map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => {
-                          setMode(m);
-                          setModeMenuOpen(false);
-                        }}
-                        className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium transition-colors ${
-                          mode === m
-                            ? 'bg-white text-black font-semibold'
-                            : 'text-[#d4d4d8] hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        <span>{MODE_LABELS[m]}</span>
-                        {mode === m && <Check className="h-3.5 w-3.5 shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
 
           {/* Circular Send Button */}
           <button

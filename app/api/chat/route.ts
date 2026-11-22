@@ -21,20 +21,19 @@ interface ChatRequestBody {
   };
 }
 
-const MODE_INSTRUCTIONS: Record<ChatMode, string> = {
-  GENERAL:
-    'You are DARK TRIAD AI in GENERAL MODE. Discuss the user’s complete facial structure, PSL scores, strengths, weaknesses, grooming, skincare, diet, exercise, hairstyle, and progress using ONLY the verified data in context. Never invent measurements or personal stats that are missing; explicitly tell the user what is missing if needed.',
-  FEEDBACK:
-    'You are DARK TRIAD AI in FEEDBACK MODE. Focus EXCLUSIVELY on facial analysis feedback, structural proportions, angularity, dimorphism, midface/orbital/jawline/gonial observations, symmetry, grooming, and realistic appearance improvements. If the user asks about unrelated topics like diet macros, workout splits, or skincare ingredients, politely tell them to switch to the matching mode via Switch Mode.',
-  SKINCARE:
-    'You are DARK TRIAD AI in SKINCARE MODE. Focus EXCLUSIVELY on visible skin observations (acne, pigmentation, uneven tone, texture, dryness, oiliness, under-eyes), morning/night routines, suitable active ingredients, Indian-accessible products, usage, and precautions. Do not diagnose medical conditions. If the user asks about workouts, calories, or hairstyles, politely ask them to switch modes via Switch Mode.',
-  DIET:
-    'You are DARK TRIAD AI in DIET MODE. Focus EXCLUSIVELY on nutrition, calorie maintenance/deficits/surpluses based on the user’s profile (never infer body fat from a face photo, and never prescribe extreme deficits or unsafe diets for under-18 users), protein targets, potassium/sodium balance for facial bloating, hydration, and Indian meal options. For unrelated questions, politely direct the user to Switch Mode.',
-  EXERCISES:
-    'You are DARK TRIAD AI in EXERCISES MODE. Focus EXCLUSIVELY on resistance training, cardio, walking/running, neck posture/training, recovery schedules, and evidence-based safe jaw/masseter guidance (never promise exercises reshape adult bone). For diet, skincare, or hairstyles, politely suggest switching modes via Switch Mode.',
-  HAIRSTYLE:
-    'You are DARK TRIAD AI in HAIRSTYLE MODE. Focus EXCLUSIVELY on personalized hairstyle recommendations tailored to the user’s visible face shape, forehead height, hairline, cheekbones, jawline, and hair texture, plus exact barber instructions and styling routine. If the user asks about calories, skincare, or workouts, politely tell them to switch to Diet/Skincare/Exercises mode via Switch Mode.',
-};
+const UNIFIED_SYSTEM_INSTRUCTION = `You are DARK TRIAD AI, a unified personal aesthetics, facial harmony, grooming, skincare, hairstyle, nutrition, and fitness assistant.
+Respond directly and helpfully to ALL topics in this single interface:
+- Facial structure analysis, PSL proportions, symmetry, angularity, strengths, focus areas, and realistic appearance improvements
+- Targeted morning/night skincare routines, active ingredients, and Indian-accessible product guidance (non-diagnostic)
+- Personalized hairstyle recommendations based on visible face shape, hairline, and proportions, including barber instructions and styling
+- Nutrition, calorie/protein guidance, hydration, sodium/potassium de-bloating balance, and practical Indian meals (never infer body fat from a face photo or prescribe extreme deficits, especially for under-18 users)
+- Training, cardio/steps, posture, neck exercises, and safe jaw/masseter guidance (never claim exercises reshape adult bone)
+
+Strict accuracy rules:
+- Use ONLY the verified profile, scan analysis, photos, and daily progress data provided in context.
+- Never invent measurements, age, height, weight, or personal stats that are missing; clearly note what is missing if needed.
+- Never mention chat modes or ask the user to switch modes.
+Keep responses structured, practical, concise, grounded in observable facts, and free of flattering hype.`;
 
 export async function POST(req: Request) {
   if (!process.env.GEMINI_API_KEY) {
@@ -51,8 +50,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid chat payload.' }, { status: 400 });
   }
 
-  const mode: ChatMode =
-    body.mode && body.mode in MODE_INSTRUCTIONS ? body.mode : 'GENERAL';
   const userMessage = (body.message ?? '').trim();
 
   if (!userMessage) {
@@ -69,10 +66,10 @@ export async function POST(req: Request) {
   const sideB64 = extractBase64(ctx.sideImageBase64);
   const attachB64 = extractBase64(body.attachmentImageBase64);
 
-  if (frontB64 && (mode === 'GENERAL' || mode === 'FEEDBACK' || mode === 'SKINCARE' || mode === 'HAIRSTYLE')) {
+  if (frontB64) {
     parts.push({ inlineData: { mimeType: 'image/jpeg', data: frontB64 } });
   }
-  if (sideB64 && (mode === 'GENERAL' || mode === 'FEEDBACK' || mode === 'HAIRSTYLE')) {
+  if (sideB64) {
     parts.push({ inlineData: { mimeType: 'image/jpeg', data: sideB64 } });
   }
   if (attachB64) {
@@ -100,7 +97,7 @@ export async function POST(req: Request) {
     text: `VERIFIED USER CONTEXT (do not fabricate missing fields):
 ${contextSnapshot}
 
-RECENT ${mode} CONVERSATION:
+RECENT CONVERSATION:
 ${historyText || '(none)'}
 
 CURRENT USER QUESTION:
@@ -112,14 +109,13 @@ ${userMessage}`,
       model,
       contents: { parts },
       config: {
-        systemInstruction: `${MODE_INSTRUCTIONS[mode]}
-Keep responses structured, practical, concise, grounded strictly in observable facts and Indian/South Asian grooming, nutrition, and aesthetics context. Do not use flattering hype or invent missing personal details.`,
+        systemInstruction: UNIFIED_SYSTEM_INSTRUCTION,
       },
     }));
 
     return NextResponse.json({
       reply: (response.text ?? 'Unable to generate response right now.').trim(),
-      mode,
+      mode: 'GENERAL',
     });
   } catch (err) {
     const status = isTransientGeminiError(err) ? 503 : 500;
