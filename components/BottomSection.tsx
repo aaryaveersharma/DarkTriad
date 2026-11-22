@@ -11,7 +11,7 @@ export function BottomSection({
   onGetRatingsClick,
 }: BottomSectionProps) {
   return (
-    <footer className="mx-auto max-w-5xl px-4 pt-8 pb-16 sm:px-6 sm:pt-12">
+    <footer className="mx-auto max-w-5xl px-4 pt-8 pb-4 sm:px-6 sm:pt-12 sm:pb-6">
       {/* Odysser-inspired CTA box (Image 3) with faces in circles + "Get your ratings" */}
       <div className="rounded-[32px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-7 sm:p-10">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -46,31 +46,17 @@ export function BottomSection({
         </div>
       </div>
 
-      {/* Large sleek Odysser-style wordmark aligned left with blended top-edge blur */}
+      {/* Large crisp pixel wordmark aligned left without blur */}
       <div className="mt-14 overflow-hidden border-b border-[#0a0a0a]/12 pb-8 text-left">
-        <div className="font-odysser text-[clamp(3.25rem,11.5vw,8.25rem)] leading-[0.9] text-[#0a0a0a]">
-          <span className="relative inline-block">
-            <span className="odysser-blur-base block">Dark Triad</span>
-            <span
-              aria-hidden="true"
-              className="odysser-blur-mid pointer-events-none absolute inset-0 block select-none"
-            >
-              Dark Triad
-            </span>
-            <span
-              aria-hidden="true"
-              className="odysser-blur-veil pointer-events-none absolute inset-0 block select-none"
-            >
-              Dark Triad
-            </span>
-          </span>
+        <div className="font-design-society text-[clamp(3.25rem,11.5vw,8.25rem)] leading-[0.95] text-[#0a0a0a]">
+          Dark Triad
         </div>
       </div>
 
       {/* Quiet 3-column footer */}
       <div className="mt-8 grid gap-6 text-xs text-[#3f3f3c] sm:grid-cols-3">
         <div className="space-y-1">
-          <p className="font-medium text-[#0a0a0a]">© 2026 Dark Triad</p>
+          <p className="font-medium text-[#0a0a0a]">Dark Triad</p>
           <p>Facial harmony &amp; grooming protocol for India.</p>
         </div>
 
@@ -90,6 +76,24 @@ export function BottomSection({
           <p>Camera frames are analyzed on-demand and never stored.</p>
           <p className="font-medium text-[#0a0a0a]">Built for South Asian proportions</p>
         </div>
+      </div>
+
+      {/* Bottom of screen: All rights reserved + clickable By Aaryaveer Sharma */}
+      <div className="mt-8 border-t border-[#0a0a0a]/10 pt-4 pb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#3f3f3c]">
+        <p>
+          © 2026 Dark Triad. All rights reserved.{' '}
+          <span>
+            By{' '}
+            <a
+              href="https://aaryaveersharma.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[#0a0a0a] underline underline-offset-4 hover:opacity-75 transition-opacity"
+            >
+              Aaryaveer Sharma
+            </a>
+          </span>
+        </p>
       </div>
     </footer>
   );

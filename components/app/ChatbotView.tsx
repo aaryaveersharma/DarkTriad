@@ -5,7 +5,7 @@ import {
   Check,
   ChevronDown,
   Loader2,
-  Paperclip,
+  Plus,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -39,6 +39,15 @@ const MODES: ChatMode[] = [
   'FEEDBACK',
   'HAIRSTYLE',
 ];
+
+const MODE_LABELS: Record<ChatMode, string> = {
+  GENERAL: 'General',
+  SKINCARE: 'Skincare',
+  DIET: 'Diet',
+  EXERCISES: 'Exercises',
+  FEEDBACK: 'Feedback',
+  HAIRSTYLE: 'Hairstyle',
+};
 
 const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
   GENERAL: [
@@ -337,11 +346,11 @@ export function ChatbotView({
   const showGreeting = messages.length === 0 && !loading;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8.25rem)] sm:h-[calc(100dvh-8.75rem)] max-h-[860px] w-full text-left">
-      {/* Region 1: Independently scrollable conversation area */}
+    <div className="flex flex-col flex-1 min-h-0 h-full w-full text-left overflow-hidden">
+      {/* Region 1: Independently scrollable conversation area (scroll locked inside) */}
       <div
         ref={messagesScrollRef}
-        className="flex-1 overflow-y-auto px-1 py-1 space-y-4 min-h-0"
+        className="flex-1 overflow-y-auto overscroll-contain px-0.5 py-1 space-y-4 min-h-0"
       >
         {showGreeting && (
           <div className="min-h-full flex flex-col items-center justify-center pb-12 sm:pb-16 px-3 text-center">
@@ -357,10 +366,10 @@ export function ChatbotView({
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[92%] sm:max-w-[80%] text-sm ${
+              className={`max-w-[94%] sm:max-w-[82%] text-sm ${
                 msg.role === 'user'
                   ? 'rounded-2xl border border-white/18 bg-[#222227] px-4 py-3 text-[#f4f4f5]'
-                  : 'border-l-2 border-white/20 pl-4 py-1 text-[#e4e4e7]'
+                  : 'pl-0.5 py-1 text-[#e4e4e7]'
               }`}
             >
               {msg.imageDataUrl && (
@@ -415,19 +424,18 @@ export function ChatbotView({
 
         {loading && (
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa] py-1">
+            <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa] py-1 pl-0.5">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Thinking in {mode} mode...</span>
+              <span>Thinking in {MODE_LABELS[mode]} mode...</span>
             </div>
           </div>
         )}
 
         {errorMsg && (
-          <div className="border-l-2 border-red-400/60 pl-3 py-1 text-xs text-red-200">
+          <div className="rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">
             {errorMsg}
           </div>
         )}
-
       </div>
 
       {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
@@ -447,13 +455,13 @@ export function ChatbotView({
         </div>
       )}
 
-      {/* Region 3: Fixed composer at the bottom */}
+      {/* Region 3: Fixed circular/pill composer at the bottom */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void sendMessage(input);
         }}
-        className="shrink-0 relative border-t border-white/12 pt-3 pb-1"
+        className="shrink-0 relative pt-1.5 pb-1"
       >
         <input
           id={fileInputId}
@@ -464,7 +472,7 @@ export function ChatbotView({
         />
 
         {attachment && (
-          <div className="mb-2.5 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2 px-1">
             <div className="relative inline-block">
               <img
                 src={attachment}
@@ -484,9 +492,20 @@ export function ChatbotView({
           </div>
         )}
 
-        <div className="rounded-2xl border border-white/18 bg-transparent p-3 focus-within:border-white/35 transition-colors">
+        <div className="relative flex items-center gap-1.5 rounded-full border border-white/16 bg-[#1e1e22] px-2 py-1.5 min-h-[50px] focus-within:border-white/35 transition-colors shadow-lg">
+          {/* Plus icon for image upload */}
+          <label
+            htmlFor={fileInputId}
+            title="Attach image"
+            aria-label="Attach image"
+            className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#d4d4d8] hover:bg-white/10 hover:text-white transition-colors"
+          >
+            <Plus className="h-5 w-5 stroke-[2]" />
+          </label>
+
+          {/* Compact single-line / expanding text input */}
           <textarea
-            rows={2}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -495,79 +514,68 @@ export function ChatbotView({
                 void sendMessage(input);
               }
             }}
-            placeholder={`Ask DARK TRIAD AI (${mode} mode)...`}
-            className="w-full resize-none bg-transparent px-1 text-sm text-[#f4f4f5] placeholder:text-[#7c7c85] focus:outline-none"
+            placeholder={`Ask Dark Triad AI (${MODE_LABELS[mode]})...`}
+            className="flex-1 min-w-0 resize-none bg-transparent py-1.5 px-1 text-sm text-[#f4f4f5] placeholder:text-[#8e8e95] focus:outline-none leading-snug max-h-24 overflow-y-auto"
           />
 
-          <div className="mt-2 flex items-center justify-between gap-2 pt-1">
-            <label
-              htmlFor={fileInputId}
-              title="Attach image for analysis or question"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-[#9e9ea6] hover:bg-white/8 hover:text-white transition-colors"
+          {/* Compact Modes dropdown trigger opening upward */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setModeMenuOpen((o) => !o)}
+              className="inline-flex h-8 items-center gap-1 rounded-full border border-white/14 bg-white/[0.04] px-2.5 text-xs font-medium text-[#e4e4e7] hover:border-white/30 hover:text-white transition-colors"
             >
-              <Paperclip className="h-4 w-4" />
-            </label>
+              <span>Modes</span>
+              <ChevronDown
+                className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
+                  modeMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
 
-            <div className="flex items-center gap-2">
-              {/* Compact Switch Mode selector: Anchored dropdown opening UPWARD */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setModeMenuOpen((o) => !o)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-transparent px-3 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:border-white/38 transition-colors"
+            <AnimatePresence>
+              {modeMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                  className="absolute bottom-full right-0 mb-2.5 z-50 w-40 overflow-hidden rounded-xl border border-white/20 bg-[#161619] p-1 shadow-2xl backdrop-blur-md"
                 >
-                  <span>SWITCH MODE · {mode}</span>
-                  <ChevronDown
-                    className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
-                      modeMenuOpen ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-
-                <AnimatePresence>
-                  {modeMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 4 }}
-                      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                      className="absolute bottom-full right-0 mb-2 z-50 w-44 overflow-hidden rounded-xl border border-white/20 bg-[#161619] p-1 shadow-2xl backdrop-blur-md"
-                    >
-                      <div className="flex flex-col divide-y divide-white/6">
-                        {MODES.map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => {
-                              setMode(m);
-                              setModeMenuOpen(false);
-                            }}
-                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium transition-colors ${
-                              mode === m
-                                ? 'bg-white text-black font-semibold'
-                                : 'text-[#d4d4d8] hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span>{m}</span>
-                            {mode === m && <Check className="h-3.5 w-3.5 shrink-0" />}
-                          </button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                aria-label="Send message"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#f4f4f5] text-[#0a0a0a] transition-opacity hover:opacity-90 disabled:opacity-35"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-            </div>
+                  <div className="flex flex-col divide-y divide-white/6">
+                    {MODES.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          setMode(m);
+                          setModeMenuOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium transition-colors ${
+                          mode === m
+                            ? 'bg-white text-black font-semibold'
+                            : 'text-[#d4d4d8] hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        <span>{MODE_LABELS[m]}</span>
+                        {mode === m && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
+
+          {/* Circular Send Button */}
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+            aria-label="Send message"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f4f4f5] text-[#0a0a0a] transition-opacity hover:opacity-90 disabled:opacity-35"
+          >
+            <ArrowUp className="h-4.5 w-4.5 stroke-[2.2]" />
+          </button>
         </div>
       </form>
     </div>

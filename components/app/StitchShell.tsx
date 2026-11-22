@@ -35,10 +35,16 @@ export function StitchShell({
   session,
   children,
 }: StitchShellProps) {
+  const isChat = activeView === 'chatbot';
+
   return (
-    <div className="stitch-dark-bg min-h-screen flex flex-col">
+    <div
+      className={`stitch-dark-bg flex flex-col ${
+        isChat ? 'h-[100dvh] overflow-hidden overscroll-none' : 'min-h-screen'
+      }`}
+    >
       {/* Clean, Minimal Top Bar: Dark Triad wordmark (without AI) + Single Profile Icon (properly inset) */}
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <button
             type="button"
@@ -71,7 +77,9 @@ export function StitchShell({
       {/* Smooth animated view switching */}
       <main
         className={`mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6 ${
-          activeView === 'chatbot' ? 'pt-2 pb-16 sm:pt-3' : 'pt-5 pb-24 sm:pt-7'
+          isChat
+            ? 'min-h-0 flex flex-col pt-2 pb-[60px] overflow-hidden sm:pt-3'
+            : 'pt-5 pb-24 sm:pt-7'
         }`}
       >
         <AnimatePresence mode="wait">
@@ -81,6 +89,7 @@ export function StitchShell({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className={isChat ? 'flex-1 min-h-0 flex flex-col' : undefined}
           >
             {children}
           </motion.div>

@@ -42,12 +42,61 @@ interface ChatLaunchConfig {
   prompt?: string;
 }
 
+const ACTIVE_VIEW_STORAGE_KEY = 'dt_active_view';
+const SELECTED_RECORD_STORAGE_KEY = 'dt_selected_record_id';
+const VALID_VIEWS: AppView[] = [
+  'landing',
+  'results',
+  'dashboard',
+  'chatbot',
+  'rankings',
+  'improve',
+  'profile',
+];
+
+function readSavedActiveView(): AppView | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('view') as AppView | null;
+    if (fromUrl && VALID_VIEWS.includes(fromUrl)) return fromUrl;
+
+    const fromSession = window.sessionStorage.getItem(
+      ACTIVE_VIEW_STORAGE_KEY,
+    ) as AppView | null;
+    if (fromSession && VALID_VIEWS.includes(fromSession)) return fromSession;
+
+    const fromLocal = window.localStorage.getItem(
+      ACTIVE_VIEW_STORAGE_KEY,
+    ) as AppView | null;
+    if (fromLocal && VALID_VIEWS.includes(fromLocal)) return fromLocal;
+  } catch {
+    // Ignore storage access failures
+  }
+  return null;
+}
+
+function persistActiveView(view: AppView) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+    window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+  } catch {
+    // Ignore storage access failures
+  }
+}
+
 export default function HomePage() {
   const [hydrated, setHydrated] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [ownerId, setOwnerId] = useState<string>('anon-init');
   const [activeView, setActiveView] = useState<AppView>('landing');
   const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const navigateToView = useCallback((view: AppView) => {
+    persistActiveView(view);
+    setActiveView(view);
+  }, []);
 
   const [profile, setProfile] = useState<UserProfile>({
     ownerId: 'anon-init',
@@ -83,14 +132,28 @@ export default function HomePage() {
     setProfile(loadedProfile);
     setAnalyses(loadedAnalyses);
     setDailyProgress(loadedProgress);
+
+    let savedRecordId: string | null = null;
+    try {
+      savedRecordId =
+        window.sessionStorage.getItem(SELECTED_RECORD_STORAGE_KEY) ||
+        window.localStorage.getItem(SELECTED_RECORD_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+    const matchingSaved =
+      savedRecordId && loadedAnalyses.some((a) => a.id === savedRecordId)
+        ? savedRecordId
+        : null;
     setSelectedRecordId(
-      loadedAnalyses.length > 0
-        ? loadedAnalyses[loadedAnalyses.length - 1].id
-        : null,
+      matchingSaved ??
+        (loadedAnalyses.length > 0
+          ? loadedAnalyses[loadedAnalyses.length - 1].id
+          : null),
     );
   }, []);
 
-  // Section 13: Automatically restore persistent logged-in users directly into Dashboard
+  // Restore saved view across refreshes (chatbot, profile, dashboard, etc.)
   useEffect(() => {
     let active = true;
     const init = async () => {
@@ -112,8 +175,11 @@ export default function HomePage() {
         await loadWorkspaceData(resolvedOwner);
         if (!active) return;
 
-        if (activeSession) {
-          setActiveView('dashboard');
+        const savedView = readSavedActiveView();
+        if (savedView) {
+          setActiveView(savedView);
+        } else if (activeSession) {
+          navigateToView('dashboard');
         }
       } finally {
         if (active) setHydrated(true);
@@ -138,7 +204,10 @@ export default function HomePage() {
         void DataService.associateAnonymousData(nextSession.userId, nextSession.email).then(
           () => loadWorkspaceData(nextSession.userId),
         );
-        setActiveView('dashboard');
+        const existingSaved = readSavedActiveView();
+        if (!existingSaved) {
+          navigateToView('dashboard');
+        }
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
       }
@@ -148,10 +217,10 @@ export default function HomePage() {
       active = false;
       subscription?.data.subscription.unsubscribe();
     };
-  }, [loadWorkspaceData]);
+  }, [loadWorkspaceData, navigateToView]);
 
   const scrollToAndOpenScanner = useCallback(() => {
-    setActiveView('landing');
+    navigateToView('landing');
     window.setTimeout(() => {
       const box = document.getElementById('camera-box');
       if (box) {
@@ -159,7 +228,7 @@ export default function HomePage() {
       }
       setCameraTriggerCount((c) => c + 1);
     }, 60);
-  }, []);
+  }, [navigateToView]);
 
   const handleGetRatingsClick = useCallback(() => {
     setIsUpdatingSelfie(false);
@@ -172,9 +241,9 @@ export default function HomePage() {
 
   // Direct dashboard entry: immediately open dashboard for both existing and new users
   const handleDashboardClick = useCallback(() => {
-    setActiveView('dashboard');
+    navigateToView('dashboard');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [navigateToView]);
 
   const handleAuthenticated = useCallback(
     async (newSession: AuthSession) => {
@@ -182,22 +251,22 @@ export default function HomePage() {
       setSession(newSession);
       await DataService.associateAnonymousData(newSession.userId, newSession.email);
       await loadWorkspaceData(newSession.userId);
-      setActiveView('dashboard');
+      navigateToView('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [loadWorkspaceData],
+    [loadWorkspaceData, navigateToView],
   );
 
   const handleMoveForwardWithoutLogin = useCallback(() => {
     setAuthModalOpen(false);
     if (analyses.length > 0) {
-      setActiveView('dashboard');
+      navigateToView('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     setIsUpdatingSelfie(false);
     scrollToAndOpenScanner();
-  }, [analyses.length, scrollToAndOpenScanner]);
+  }, [analyses.length, navigateToView, scrollToAndOpenScanner]);
 
   const latestRecord = useMemo(
     () => (analyses.length > 0 ? analyses[analyses.length - 1] : null),
@@ -235,11 +304,17 @@ export default function HomePage() {
       const refreshed = await DataService.getAnalyses(targetOwner);
       setAnalyses(refreshed);
       setSelectedRecordId(record.id);
+      try {
+        window.sessionStorage.setItem(SELECTED_RECORD_STORAGE_KEY, record.id);
+        window.localStorage.setItem(SELECTED_RECORD_STORAGE_KEY, record.id);
+      } catch {
+        // Ignore storage errors
+      }
       setIsUpdatingSelfie(false);
-      setActiveView('results');
+      navigateToView('results');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [session],
+    [navigateToView, session],
   );
 
   const handleUpdateSelfie = useCallback(() => {
@@ -252,9 +327,9 @@ export default function HomePage() {
     setSession(null);
     const anonId = getOrCreateAnonymousOwnerId();
     await loadWorkspaceData(anonId);
-    setActiveView('landing');
+    navigateToView('landing');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [loadWorkspaceData]);
+  }, [loadWorkspaceData, navigateToView]);
 
   // Prevent landing flash for logged-in users while verifying local IndexedDB session
   if (!hydrated) {
@@ -277,7 +352,7 @@ export default function HomePage() {
       if (activeSession) {
         setSession(activeSession);
         await loadWorkspaceData(activeSession.userId);
-        setActiveView('dashboard');
+        navigateToView('dashboard');
       }
     } catch (err) {
       setRecoveryError(
@@ -351,14 +426,14 @@ export default function HomePage() {
       <StitchShell
         activeView={activeView}
         onNavigate={(view) => {
-          setActiveView(view);
+          navigateToView(view);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         session={session}
         scanCount={analyses.length}
         onBackToLanding={() => {
           setIsUpdatingSelfie(false);
-          setActiveView('landing');
+          navigateToView('landing');
         }}
         onLogout={() => void handleLogout()}
       >
@@ -366,11 +441,11 @@ export default function HomePage() {
           <ResultsView
             record={selectedRecord}
             onDiscoverImprovementPlan={() => {
-              setActiveView('improve');
+              navigateToView('improve');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenDashboard={() => {
-              setActiveView('dashboard');
+              navigateToView('dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onNewScan={handleUpdateSelfie}
@@ -386,16 +461,22 @@ export default function HomePage() {
             dailyProgress={dailyProgress}
             onSelectRecord={(id) => {
               setSelectedRecordId(id);
-              setActiveView('results');
+              try {
+                window.sessionStorage.setItem(SELECTED_RECORD_STORAGE_KEY, id);
+                window.localStorage.setItem(SELECTED_RECORD_STORAGE_KEY, id);
+              } catch {
+                // Ignore storage errors
+              }
+              navigateToView('results');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenResults={() => {
-              setActiveView('results');
+              navigateToView('results');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onUpdateSelfie={handleUpdateSelfie}
             onNavigate={(view) => {
-              setActiveView(view);
+              navigateToView(view);
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onDailyProgressSaved={(entries) => setDailyProgress(entries)}
@@ -420,7 +501,7 @@ export default function HomePage() {
         {activeView === 'rankings' && (
           <RankingsView
             onBackHome={() => {
-              setActiveView('dashboard');
+              navigateToView('dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
@@ -432,7 +513,7 @@ export default function HomePage() {
             onStartScan={handleUpdateSelfie}
             onDiscussInChatbot={() => {
               setChatLaunchConfig({ mode: 'GENERAL' });
-              setActiveView('chatbot');
+              navigateToView('chatbot');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
@@ -462,7 +543,7 @@ export default function HomePage() {
       <TopNav
         onTriggerScan={handleGetRatingsClick}
         onNavigateView={(view) => {
-          setActiveView(view);
+          navigateToView(view);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
@@ -479,7 +560,7 @@ export default function HomePage() {
           isUpdatingSelfie={isUpdatingSelfie}
           onCancelUpdate={() => {
             setIsUpdatingSelfie(false);
-            setActiveView('dashboard');
+            navigateToView('dashboard');
           }}
           onAnalysisComplete={(front, side, result) =>
             void handleAnalysisComplete(front, side, result)
