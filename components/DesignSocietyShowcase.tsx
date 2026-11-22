@@ -11,6 +11,7 @@ import {
   Utensils,
 } from 'lucide-react';
 import { useRef } from 'react';
+import PixelCard from './PixelCard';
 
 interface FeatureStep {
   step: string;
@@ -66,7 +67,7 @@ const DARK_TRIAD_STEPS: FeatureStep[] = [
     tag: 'STEP 06',
     title: '24/7 Dark Triad AI Support',
     description:
-      'Ask 6 specialized AI chatbot modes synced directly with your latest scan and daily progress logs anytime for barber scripts and product checks.',
+      'Ask our unified AI chatbot synced directly with your latest scan and daily progress logs anytime for barber scripts, routines, and product checks.',
     icon: Bot,
   },
 ];
@@ -116,7 +117,7 @@ export function DesignSocietyShowcase() {
           </div>
         </div>
 
-        {/* Horizontal Step-by-Step Carousel in White Transparent Boxes (exact Dashboard Explore Features sizing) */}
+        {/* Horizontal Step-by-Step Carousel in White Transparent Boxes with White PixelCard Animation */}
         <div
           ref={carouselRef}
           className="flex gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory no-scrollbar"
@@ -124,31 +125,52 @@ export function DesignSocietyShowcase() {
           {DARK_TRIAD_STEPS.map((item) => {
             const Icon = item.icon;
             return (
-              <article
+              <PixelCard
                 key={item.step}
-                className="group snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-[#0a0a0a]/12 bg-white/50 backdrop-blur-md p-4 text-left transition-all hover:border-[#0a0a0a]/28 hover:bg-white/70 flex flex-col justify-between shadow-[0_8px_24px_-14px_rgba(10,10,10,0.12)]"
+                colors={['#ffffff', '#f8fafc', '#f1f5f9']}
+                glowColor="#ffffff"
+                shape="square"
+                origin="pointer"
+                gap={5}
+                pixelSize={2.4}
+                speed={35}
+                revealDuration={550}
+                spotlight={0.55}
+                glow={0.55}
+                opacity={0.95}
+                idlePresence={0.38}
+                idleOpacity={0.42}
+                fade={0.25}
+                trigger="hover"
+                clickPulse
+                intro={false}
+                noFocus
+                theme="light"
+                className="group snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-[#0a0a0a]/12 bg-white/25 backdrop-blur-md text-left transition-all hover:border-[#0a0a0a]/28 hover:bg-white/35 shadow-[0_8px_24px_-14px_rgba(10,10,10,0.12)] cursor-pointer"
               >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-medium tracking-[0.1em] text-[#585854]">
-                      {item.tag}
-                    </span>
-                    <Icon className="h-4 w-4 text-[#585854] group-hover:text-[#0a0a0a] transition-colors" />
+                <article className="relative z-10 flex h-full w-full flex-col justify-between p-4 text-left">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-medium tracking-[0.1em] text-[#585854]">
+                        {item.tag}
+                      </span>
+                      <Icon className="h-4 w-4 text-[#585854] group-hover:text-[#0a0a0a] transition-colors" />
+                    </div>
+
+                    <h3 className="mt-2.5 text-base font-medium text-[#0a0a0a] leading-snug tracking-[-0.02em]">
+                      {item.title}
+                    </h3>
+
+                    <p className="mt-1.5 text-xs leading-relaxed text-[#3f3f3c]">
+                      {item.description}
+                    </p>
                   </div>
 
-                  <h3 className="mt-2.5 text-base font-medium text-[#0a0a0a] leading-snug tracking-[-0.02em]">
-                    {item.title}
-                  </h3>
-
-                  <p className="mt-1.5 text-xs leading-relaxed text-[#3f3f3c]">
-                    {item.description}
-                  </p>
-                </div>
-
-                <span className="mt-4 inline-flex items-center text-[11px] font-medium text-[#585854] tabular-nums">
-                  {item.step} · 06
-                </span>
-              </article>
+                  <span className="mt-4 inline-flex items-center text-[11px] font-medium text-[#585854] tabular-nums">
+                    {item.step} · 06
+                  </span>
+                </article>
+              </PixelCard>
             );
           })}
         </div>
