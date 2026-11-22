@@ -87,17 +87,18 @@ export function TopNav({ onTriggerScan, onNavigateView }: TopNavProps) {
         </div>
       </div>
 
-      {/* Smooth sliding down menu drawer for mobile */}
+      {/* Silky smooth GPU-composited slide-down menu drawer for mobile */}
       <AnimatePresence>
         {menuOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -12, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto' }}
-            exit={{ opacity: 0, y: -12, height: 0 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden md:hidden"
+            initial={{ opacity: 0, y: -16, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.985 }}
+            transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+            style={{ transformOrigin: 'top center' }}
+            className="absolute inset-x-4 top-full z-50 sm:inset-x-6 md:hidden"
           >
-            <div className="glass-nav mx-auto mt-2 flex max-w-5xl flex-col gap-2 rounded-2xl p-4 shadow-lg border border-[#0a0a0a]/15 bg-[#e8e8e5]/95 backdrop-blur-xl">
+            <div className="glass-nav mx-auto mt-2 flex max-w-5xl flex-col gap-1.5 rounded-2xl p-4 shadow-[0_24px_48px_-16px_rgba(10,10,10,0.28)] border border-[#0a0a0a]/15 bg-[#e8e8e5]/95 backdrop-blur-xl">
               <button
                 type="button"
                 onClick={() => handleNavClick('dashboard')}

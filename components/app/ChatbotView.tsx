@@ -344,7 +344,7 @@ export function ChatbotView({
         className="flex-1 overflow-y-auto px-1 py-1 space-y-4 min-h-0"
       >
         {showGreeting && (
-          <div className="min-h-full flex flex-col items-center justify-end pb-5 sm:pb-6 px-3 text-center">
+          <div className="min-h-full flex flex-col items-center justify-center pb-12 sm:pb-16 px-3 text-center">
             <h2 className="max-w-lg text-balance text-[clamp(1.6rem,3.6vw,2.75rem)] font-medium leading-[1.15] tracking-[-0.035em] text-[#f4f4f5]">
               Hey, How are you feeling today?
             </h2>
@@ -432,14 +432,14 @@ export function ChatbotView({
 
       {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
       {showQuickSuggestions && (
-        <div className="shrink-0 pt-1 pb-2 flex flex-wrap justify-center gap-1.5">
+        <div className="shrink-0 pt-1 pb-2 flex flex-wrap gap-1.5">
           {suggestions.map((q) => (
             <button
               key={q}
               type="button"
               disabled={loading}
               onClick={() => void sendMessage(q)}
-              className="rounded-full border border-white/18 bg-white/[0.04] px-3.5 py-1.5 text-center text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
+              className="rounded-full border border-white/18 bg-white/[0.04] px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
             >
               {q}
             </button>
