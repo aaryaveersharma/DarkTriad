@@ -33,6 +33,11 @@ export const metadata: Metadata = {
   },
   description: SEO_DESCRIPTION,
   applicationName: 'Dark Triad AI',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
   keywords: [
     'Dark Triad',
     'Dark Triad AI',
