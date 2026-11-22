@@ -334,9 +334,9 @@ export function ChatbotView({
   const showQuickSuggestions = !startedModes[mode] && messages.length === 0;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-7.5rem)] max-h-[880px] w-full text-left">
+    <div className="flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6rem)] max-h-[920px] w-full text-left pt-1">
       {/* Region 1: Independently scrollable conversation area */}
-      <div className="flex-1 overflow-y-auto px-1 py-2 space-y-4 min-h-0">
+      <div className="flex-1 overflow-y-auto px-1 py-1 space-y-4 min-h-0">
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -419,7 +419,7 @@ export function ChatbotView({
 
       {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
       {showQuickSuggestions && (
-        <div className="shrink-0 pt-2 pb-2.5 flex flex-wrap gap-2">
+        <div className="shrink-0 pt-1 pb-1.5 flex flex-wrap gap-1.5">
           {suggestions.map((q) => (
             <button
               key={q}

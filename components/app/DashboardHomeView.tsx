@@ -392,7 +392,7 @@ export function DashboardHomeView({
               Dark Triad
             </span>{' '}
             AI
-            <span className="inline-block ml-1 font-mono font-light text-white animate-pulse">
+            <span className="terminal-blink ml-1 font-mono font-light text-white">
               |
             </span>
           </span>
@@ -400,7 +400,7 @@ export function DashboardHomeView({
         </button>
       </section>
 
-      {/* EXPLORE FEATURES */}
+      {/* EXPLORE FEATURES (Transparent curved boxes, lines in between removed) */}
       <section className="border-t border-white/12 pt-8 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-lg font-medium tracking-tight text-[#f4f4f5]">
@@ -428,7 +428,7 @@ export function DashboardHomeView({
 
         <div
           ref={carouselRef}
-          className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory no-scrollbar"
+          className="flex gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory no-scrollbar"
         >
           {FEATURE_CARDS.map((card) => {
             const Icon = card.icon;
@@ -437,21 +437,23 @@ export function DashboardHomeView({
                 key={card.title}
                 type="button"
                 onClick={card.onClick}
-                className="group snap-start shrink-0 w-[235px] sm:w-[255px] border-l border-white/15 pl-4 py-1 text-left transition-colors hover:border-white/45"
+                className="group snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-white/14 bg-white/[0.03] backdrop-blur-sm p-4 text-left transition-all hover:border-white/35 hover:bg-white/[0.06] flex flex-col justify-between shadow-sm"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-medium tracking-[0.1em] text-[#8e8e95]">
-                    {card.tag}
-                  </span>
-                  <Icon className="h-4 w-4 text-[#8e8e95] group-hover:text-white transition-colors" />
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium tracking-[0.1em] text-[#8e8e95]">
+                      {card.tag}
+                    </span>
+                    <Icon className="h-4 w-4 text-[#8e8e95] group-hover:text-white transition-colors" />
+                  </div>
+                  <h3 className="mt-2.5 text-base font-medium text-[#f4f4f5] leading-snug">
+                    {card.title}
+                  </h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#9e9ea6]">
+                    {card.subtitle}
+                  </p>
                 </div>
-                <h3 className="mt-3 text-base font-medium text-[#f4f4f5] leading-snug">
-                  {card.title}
-                </h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-[#9e9ea6]">
-                  {card.subtitle}
-                </p>
-                <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-[#f4f4f5] opacity-80 group-hover:opacity-100">
+                <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-[#f4f4f5] opacity-80 group-hover:opacity-100">
                   <span>Open</span>
                   <ArrowUpRight className="h-3.5 w-3.5" />
                 </span>
@@ -629,17 +631,16 @@ export function DashboardHomeView({
               </p>
             </div>
 
-            <div className="rounded-[32px] overflow-hidden border border-white/14">
-              <CurvedCameraBox
-                externalTriggerCount={cameraTriggerCount}
-                profile={profile}
-                onAnalysisComplete={(front, side, result) => {
-                  if (onAnalysisComplete) {
-                    onAnalysisComplete(front, side, result);
-                  }
-                }}
-              />
-            </div>
+            <CurvedCameraBox
+              externalTriggerCount={cameraTriggerCount}
+              profile={profile}
+              className="scroll-mt-24 w-full px-0 pb-6 sm:px-0 sm:pb-8"
+              onAnalysisComplete={(front, side, result) => {
+                if (onAnalysisComplete) {
+                  onAnalysisComplete(front, side, result);
+                }
+              }}
+            />
           </div>
         )}
       </section>

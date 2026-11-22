@@ -30,6 +30,7 @@ interface CurvedCameraBoxProps {
     sidePhoto: StoredPhoto,
     result: PSLAnalysisResult,
   ) => void;
+  className?: string;
 }
 
 function compressFileToJpeg(file: File): Promise<StoredPhoto> {
@@ -80,6 +81,7 @@ export function CurvedCameraBox({
   isUpdatingSelfie = false,
   onCancelUpdate,
   onAnalysisComplete,
+  className,
 }: CurvedCameraBoxProps) {
   const [mode, setMode] = useState<BoxMode>('idle');
   const [activeSlot, setActiveSlot] = useState<CaptureSlot>('front');
@@ -462,9 +464,9 @@ export function CurvedCameraBox({
   return (
     <section
       id="camera-box"
-      className="scroll-mt-24 mx-auto max-w-5xl px-4 pb-16 sm:px-6 sm:pb-24"
+      className={className || "scroll-mt-24 mx-auto max-w-5xl px-4 pb-16 sm:px-6 sm:pb-24"}
     >
-      <div className="relative overflow-hidden rounded-[36px] sm:rounded-[48px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-5 sm:p-10 md:p-14 shadow-[0_24px_60px_-28px_rgba(10,10,10,0.22)]">
+      <div className="relative overflow-hidden rounded-[36px] sm:rounded-[48px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-6 sm:p-12 md:p-16 shadow-[0_24px_60px_-28px_rgba(10,10,10,0.22)]">
         {/* Hidden File Inputs */}
         <input
           id={frontManualUploadId}
@@ -491,29 +493,29 @@ export function CurvedCameraBox({
 
         {/* 1. IDLE STATE & MANUAL UPLOAD FLOW */}
         {mode === 'idle' && (
-          <div className="flex flex-col items-center justify-center py-6 text-center sm:py-10">
-            <p className="text-[11px] font-medium tracking-[0.12em] text-[#0a0a0a]/65 mb-6">
+          <div className="flex flex-col items-center justify-center py-8 text-center sm:py-12">
+            <p className="text-[11px] font-medium tracking-[0.14em] text-[#0a0a0a]/70 mb-6 uppercase">
               [OPTICAL SCANNER · FRONT &amp; SIDE PROFILE]
             </p>
 
-            <div className="pomelli-display select-none text-[clamp(4rem,10.5vw,7.75rem)] text-[#0a0a0a]">
+            <div className="pomelli-display select-none text-[clamp(4.25rem,11.5vw,8.5rem)] text-[#0a0a0a]">
               <span className="block">Get</span>
               <span className="block">your</span>
               <span className="block">rating</span>
             </div>
 
-            <div className="mt-9 flex flex-col items-center gap-4 w-full max-w-sm">
+            <div className="mt-10 flex flex-col items-center gap-4 w-full max-w-md">
               <button
                 type="button"
                 onClick={() => void openCamera('front')}
-                className="tactile-cta group inline-flex items-center gap-3.5 rounded-full py-2.5 pl-3 pr-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
+                className="tactile-cta group inline-flex items-center gap-4 rounded-full py-3 pl-4 pr-3 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
               >
                 <FaceAvatarsCluster count={2} size="md" ringColor="ring-[#141414]" />
-                <span className="text-sm sm:text-base font-medium tracking-tight text-[#f3f3f1] whitespace-nowrap">
+                <span className="text-base sm:text-lg font-medium tracking-tight text-[#f3f3f1] whitespace-nowrap">
                   Get your ratings
                 </span>
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/12 text-[#f3f3f1] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-                  <ArrowUpRight className="h-4 w-4" />
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/12 text-[#f3f3f1] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                  <ArrowUpRight className="h-4.5 w-4.5" />
                 </span>
               </button>
 
@@ -766,9 +768,9 @@ export function CurvedCameraBox({
               </button>
             </div>
 
-            {/* Oval Camera Viewport */}
-            <div className="flex flex-col items-center gap-3.5">
-              <div className="relative mx-auto aspect-[4/3] w-full max-w-xl overflow-hidden rounded-[28px] border border-[#0a0a0a]/20 bg-[#141414]">
+            {/* Oval Camera Viewport (Enlarged and Proportionate) */}
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative mx-auto aspect-[4/3] w-full max-w-2xl sm:max-w-[640px] overflow-hidden rounded-[32px] border border-[#0a0a0a]/20 bg-[#141414] shadow-md">
                 {liveFeedActive ? (
                   <>
                     <video
@@ -798,8 +800,8 @@ export function CurvedCameraBox({
                             : 'border-white/90 hover:border-white'
                         } shadow-[0_0_0_9999px_rgba(10,10,10,0.38)] ${
                           activeSlot === 'front'
-                            ? 'h-[78%] w-[46%] max-w-[230px]'
-                            : 'h-[80%] w-[54%] max-w-[260px]'
+                            ? 'h-[84%] w-[50%] max-w-[270px]'
+                            : 'h-[86%] w-[58%] max-w-[300px]'
                         }`}
                       >
                         <span className="rounded-full bg-[#0a0a0a]/65 px-2.5 py-1 text-[10px] font-medium tracking-[0.08em] text-white">
@@ -826,7 +828,7 @@ export function CurvedCameraBox({
                         bothValidated
                           ? 'border-emerald-400/90 bg-emerald-500/10'
                           : 'border-white/75 bg-white/5 hover:bg-white/10'
-                      } h-[82%] w-[52%] max-w-[230px]`}
+                      } h-[86%] w-[54%] max-w-[270px]`}
                     >
                       {validatingSlot ? (
                         <Loader2 className="h-6 w-6 animate-spin text-white" />
