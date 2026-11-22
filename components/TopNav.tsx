@@ -1,18 +1,26 @@
 'use client';
 
-import { ArrowUpRight, Menu, X } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Bot, Menu, User, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
+import { AppView } from '@/lib/types';
 
 interface TopNavProps {
   onTriggerScan: () => void;
+  onNavigateView: (view: AppView) => void;
 }
 
-export function TopNav({ onTriggerScan }: TopNavProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+export function TopNav({ onTriggerScan, onNavigateView }: TopNavProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleScanClick = () => {
-    setMobileMenuOpen(false);
+    setMenuOpen(false);
     onTriggerScan();
+  };
+
+  const handleNavClick = (view: AppView) => {
+    setMenuOpen(false);
+    onNavigateView(view);
   };
 
   return (
@@ -28,100 +36,109 @@ export function TopNav({ onTriggerScan }: TopNavProps) {
           </span>
         </a>
 
-        {/* Zone 2: 4 Clean Single-Line Nav Links */}
+        {/* Zone 2: Desktop Links */}
         <nav
           aria-label="Primary navigation"
           className="hidden md:flex items-center gap-7 text-sm font-medium text-[#0a0a0a]/75"
         >
-          <a
-            href="#camera-box"
-            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+          <button
+            type="button"
+            onClick={() => onNavigateView('dashboard')}
+            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 bg-transparent border-none cursor-pointer"
           >
-            Scan
-          </a>
-          <a
-            href="#showcase"
-            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+            Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigateView('chatbot')}
+            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 bg-transparent border-none cursor-pointer"
           >
-            Anatomy
-          </a>
-          <a
-            href="#protocol"
-            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+            Chatbot Support
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigateView('profile')}
+            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 bg-transparent border-none cursor-pointer"
           >
-            Protocol
-          </a>
-          <a
-            href="#method"
-            className="hover:text-[#0a0a0a] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
-          >
-            Method
-          </a>
+            Profile
+          </button>
         </nav>
 
-        {/* Zone 3: 1 Primary Action + Mobile Drawer Toggle */}
+        {/* Zone 3: Get Ratings + Menu Toggle */}
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
             onClick={handleScanClick}
             className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-[#141414] px-4 py-2 text-xs font-medium text-[#f3f3f1] transition-transform duration-150 hover:-translate-y-0.5 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0a0a0a]"
           >
-            <span>Get Ratings</span>
+            <span>Get your ratings</span>
             <ArrowUpRight className="h-3.5 w-3.5" />
           </button>
 
           <button
             type="button"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
-            aria-expanded={mobileMenuOpen}
-            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#0a0a0a]/15 text-[#0a0a0a] md:hidden"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#0a0a0a]/15 text-[#0a0a0a] md:hidden bg-transparent cursor-pointer"
           >
-            {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
-      {mobileMenuOpen && (
-        <div className="glass-nav mx-auto mt-2 flex max-w-5xl flex-col gap-3 rounded-2xl p-4 md:hidden">
-          <a
-            href="#camera-box"
-            onClick={() => setMobileMenuOpen(false)}
-            className="py-1.5 text-sm font-medium text-[#0a0a0a]"
+      {/* Smooth sliding down menu drawer for mobile */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -12, height: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden md:hidden"
           >
-            Scan
-          </a>
-          <a
-            href="#showcase"
-            onClick={() => setMobileMenuOpen(false)}
-            className="py-1.5 text-sm font-medium text-[#0a0a0a]"
-          >
-            Anatomy
-          </a>
-          <a
-            href="#protocol"
-            onClick={() => setMobileMenuOpen(false)}
-            className="py-1.5 text-sm font-medium text-[#0a0a0a]"
-          >
-            Protocol
-          </a>
-          <a
-            href="#method"
-            onClick={() => setMobileMenuOpen(false)}
-            className="py-1.5 text-sm font-medium text-[#0a0a0a]"
-          >
-            Method
-          </a>
-          <button
-            type="button"
-            onClick={handleScanClick}
-            className="mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-[#141414] px-4 py-2.5 text-sm font-medium text-[#f3f3f1]"
-          >
-            <span>Get your ratings</span>
-            <ArrowUpRight className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+            <div className="glass-nav mx-auto mt-2 flex max-w-5xl flex-col gap-2 rounded-2xl p-4 shadow-lg border border-[#0a0a0a]/15 bg-[#e8e8e5]/95 backdrop-blur-xl">
+              <button
+                type="button"
+                onClick={() => handleNavClick('dashboard')}
+                className="flex items-center gap-3 w-full rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-[#0a0a0a] hover:bg-black/5 transition-colors"
+              >
+                <BarChart3 className="h-4 w-4 text-[#0a0a0a]/70" />
+                <span>Dashboard</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('chatbot')}
+                className="flex items-center gap-3 w-full rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-[#0a0a0a] hover:bg-black/5 transition-colors"
+              >
+                <Bot className="h-4 w-4 text-[#0a0a0a]/70" />
+                <span>Chatbot Support</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('profile')}
+                className="flex items-center gap-3 w-full rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-[#0a0a0a] hover:bg-black/5 transition-colors"
+              >
+                <User className="h-4 w-4 text-[#0a0a0a]/70" />
+                <span>Profile</span>
+              </button>
+
+              <div className="my-1 border-t border-[#0a0a0a]/10" />
+
+              <button
+                type="button"
+                onClick={handleScanClick}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#141414] px-4 py-3 text-sm font-medium text-[#f3f3f1] shadow-md"
+              >
+                <span>Get your ratings</span>
+                <ArrowUpRight className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 }

@@ -459,7 +459,13 @@ export default function HomePage() {
   // Public Landing Page (Preserves existing design system, copy, Before/After slider, Showcase & Pillars)
   return (
     <div className="relative min-h-screen">
-      <TopNav onTriggerScan={handleGetRatingsClick} />
+      <TopNav
+        onTriggerScan={handleGetRatingsClick}
+        onNavigateView={(view) => {
+          setActiveView(view);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
 
       <main>
         <HeroSection
