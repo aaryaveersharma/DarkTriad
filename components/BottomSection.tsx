@@ -79,7 +79,7 @@ export function BottomSection({
             Optical Scan
           </a>
           <a href="#showcase" className="hover:text-[#0a0a0a] transition-colors">
-            Anatomy Study
+            What Dark Triad Does
           </a>
           <a href="#protocol" className="hover:text-[#0a0a0a] transition-colors">
             Protocol Pillars

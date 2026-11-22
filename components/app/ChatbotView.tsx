@@ -153,7 +153,7 @@ export function ChatbotView({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputId = useId();
   const launchConsumedRef = useRef(false);
 
@@ -180,7 +180,9 @@ export function ChatbotView({
   }, [ownerId, mode]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
 
   const buildProgressSummary = () => {
@@ -332,11 +334,23 @@ export function ChatbotView({
 
   const suggestions = QUICK_SUGGESTIONS[mode];
   const showQuickSuggestions = !startedModes[mode] && messages.length === 0;
+  const showGreeting = messages.length === 0 && !loading;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6rem)] max-h-[920px] w-full text-left pt-1">
+    <div className="flex flex-col h-[calc(100dvh-8.25rem)] sm:h-[calc(100dvh-8.75rem)] max-h-[860px] w-full text-left">
       {/* Region 1: Independently scrollable conversation area */}
-      <div className="flex-1 overflow-y-auto px-1 py-1 space-y-4 min-h-0">
+      <div
+        ref={messagesScrollRef}
+        className="flex-1 overflow-y-auto px-1 py-1 space-y-4 min-h-0"
+      >
+        {showGreeting && (
+          <div className="min-h-full flex flex-col items-center justify-end pb-5 sm:pb-6 px-3 text-center">
+            <h2 className="max-w-lg text-balance text-[clamp(1.6rem,3.6vw,2.75rem)] font-medium leading-[1.15] tracking-[-0.035em] text-[#f4f4f5]">
+              Hey, How are you feeling today?
+            </h2>
+          </div>
+        )}
+
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -414,19 +428,18 @@ export function ChatbotView({
           </div>
         )}
 
-        <div ref={bottomRef} />
       </div>
 
       {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
       {showQuickSuggestions && (
-        <div className="shrink-0 pt-1 pb-1.5 flex flex-wrap gap-1.5">
+        <div className="shrink-0 pt-1 pb-2 flex flex-wrap justify-center gap-1.5">
           {suggestions.map((q) => (
             <button
               key={q}
               type="button"
               disabled={loading}
               onClick={() => void sendMessage(q)}
-              className="rounded-full border border-white/18 bg-white/[0.04] px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
+              className="rounded-full border border-white/18 bg-white/[0.04] px-3.5 py-1.5 text-center text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
             >
               {q}
             </button>

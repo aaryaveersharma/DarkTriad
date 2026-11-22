@@ -69,7 +69,11 @@ export function StitchShell({
       </header>
 
       {/* Smooth animated view switching */}
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 pb-24 sm:px-6 sm:pt-7">
+      <main
+        className={`mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6 ${
+          activeView === 'chatbot' ? 'pt-2 pb-16 sm:pt-3' : 'pt-5 pb-24 sm:pt-7'
+        }`}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}
