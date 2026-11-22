@@ -15,6 +15,25 @@ export function extractBase64(raw?: string): string | null {
   return trimmed.includes(',') ? trimmed.split(',')[1] : trimmed;
 }
 
+export function extractMimeAndBase64(
+  raw?: string,
+  explicitMimeType?: string,
+): { mimeType: string; data: string } | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^data:([^;]+);base64,([\s\S]+)$/i);
+  if (match) {
+    return {
+      mimeType: explicitMimeType || match[1] || 'image/jpeg',
+      data: match[2],
+    };
+  }
+  return {
+    mimeType: explicitMimeType || 'image/jpeg',
+    data: trimmed,
+  };
+}
+
 export function isTransientGeminiError(err: unknown): boolean {
   const raw = err instanceof Error ? err.message : String(err);
   return /503|429|500|502|504|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded|temporarily|timeout|aborted|AbortError|ECONNRESET/i.test(
@@ -44,14 +63,59 @@ export interface RetryStep {
   model: string;
   delayMs: number;
   timeoutMs?: number;
+  thinkingLevel?: ThinkingLevel;
 }
+
+// Primary model for precision facial landmark & PSL analysis (accurate + quota-balanced)
+export const FACIAL_ANALYSIS_MODELS: RetryStep[] = [
+  {
+    model: 'gemini-4-hydrogen',
+    delayMs: 0,
+    timeoutMs: 42000,
+    thinkingLevel: ThinkingLevel.MEDIUM,
+  },
+  {
+    model: 'gemini-3.1-flash-lite',
+    delayMs: 300,
+    timeoutMs: 25000,
+    thinkingLevel: ThinkingLevel.MINIMAL,
+  },
+];
+
+// Lowest / fastest model for intake validation and chatbot so facial analysis gets maximum quota focus
+export const FAST_VALIDATION_MODELS: RetryStep[] = [
+  {
+    model: 'gemini-3.1-flash-lite',
+    delayMs: 0,
+    timeoutMs: 12000,
+    thinkingLevel: ThinkingLevel.MINIMAL,
+  },
+  {
+    model: 'gemini-3.1-flash-lite',
+    delayMs: 300,
+    timeoutMs: 12000,
+    thinkingLevel: ThinkingLevel.MINIMAL,
+  },
+];
+
+export const CHATBOT_MODELS: RetryStep[] = [
+  {
+    model: 'gemini-3.1-flash-lite',
+    delayMs: 0,
+    timeoutMs: 18000,
+    thinkingLevel: ThinkingLevel.MINIMAL,
+  },
+  {
+    model: 'gemini-3.1-flash-lite',
+    delayMs: 350,
+    timeoutMs: 18000,
+    thinkingLevel: ThinkingLevel.MINIMAL,
+  },
+];
 
 export async function generateWithRetryCascade(
   paramsFactory: (model: string) => GenerateContentParameters,
-  models: RetryStep[] = [
-    { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 22000 },
-    { model: 'gemini-4-hydrogen', delayMs: 400, timeoutMs: 22000 },
-  ],
+  models: RetryStep[] = CHATBOT_MODELS,
 ) {
   let lastError: unknown = null;
 
@@ -69,19 +133,21 @@ export async function generateWithRetryCascade(
       const baseParams = paramsFactory(step.model);
       const lowerModel = step.model.toLowerCase();
       const existingConfig = baseParams.config ?? {};
-      const defaultThinkingConfig = lowerModel.includes('3.1-flash-lite')
-        ? { thinkingLevel: ThinkingLevel.MINIMAL }
-        : lowerModel.startsWith('gemini-4-')
-          ? { thinkingLevel: ThinkingLevel.LOW }
-          : undefined;
+      const resolvedThinkingLevel =
+        step.thinkingLevel ??
+        (lowerModel.includes('3.1-flash-lite')
+          ? ThinkingLevel.MINIMAL
+          : lowerModel.startsWith('gemini-4-')
+            ? ThinkingLevel.LOW
+            : undefined);
 
       return await ai.models.generateContent({
         ...baseParams,
         config: {
           ...existingConfig,
           abortSignal: controller.signal,
-          ...(defaultThinkingConfig && !existingConfig.thinkingConfig
-            ? { thinkingConfig: defaultThinkingConfig }
+          ...(resolvedThinkingLevel && !existingConfig.thinkingConfig
+            ? { thinkingConfig: { thinkingLevel: resolvedThinkingLevel } }
             : {}),
         },
       });

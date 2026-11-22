@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
-  extractBase64,
+  CHATBOT_MODELS,
+  extractMimeAndBase64,
   extractReadableGeminiError,
   generateWithRetryCascade,
   isTransientGeminiError,
@@ -62,18 +63,18 @@ export async function POST(req: Request) {
     | { text: string }
   > = [];
 
-  const frontB64 = extractBase64(ctx.frontImageBase64);
-  const sideB64 = extractBase64(ctx.sideImageBase64);
-  const attachB64 = extractBase64(body.attachmentImageBase64);
+  const frontImg = extractMimeAndBase64(ctx.frontImageBase64);
+  const sideImg = extractMimeAndBase64(ctx.sideImageBase64);
+  const attachImg = extractMimeAndBase64(body.attachmentImageBase64);
 
-  if (frontB64) {
-    parts.push({ inlineData: { mimeType: 'image/jpeg', data: frontB64 } });
+  if (frontImg) {
+    parts.push({ inlineData: { mimeType: frontImg.mimeType, data: frontImg.data } });
   }
-  if (sideB64) {
-    parts.push({ inlineData: { mimeType: 'image/jpeg', data: sideB64 } });
+  if (sideImg) {
+    parts.push({ inlineData: { mimeType: sideImg.mimeType, data: sideImg.data } });
   }
-  if (attachB64) {
-    parts.push({ inlineData: { mimeType: 'image/jpeg', data: attachB64 } });
+  if (attachImg) {
+    parts.push({ inlineData: { mimeType: attachImg.mimeType, data: attachImg.data } });
   }
 
   const historyText = (body.history ?? [])
@@ -86,8 +87,8 @@ export async function POST(req: Request) {
       profile: ctx.profile ?? null,
       latestAnalysis: ctx.latestAnalysisSummary ?? null,
       dailyProgressSummary: ctx.progressSummary ?? null,
-      hasFrontPhoto: Boolean(frontB64),
-      hasSidePhoto: Boolean(sideB64),
+      hasFrontPhoto: Boolean(frontImg),
+      hasSidePhoto: Boolean(sideImg),
     },
     null,
     2,
@@ -105,13 +106,16 @@ ${userMessage}`,
   });
 
   try {
-    const response = await generateWithRetryCascade((model) => ({
-      model,
-      contents: { parts },
-      config: {
-        systemInstruction: UNIFIED_SYSTEM_INSTRUCTION,
-      },
-    }));
+    const response = await generateWithRetryCascade(
+      (model) => ({
+        model,
+        contents: { parts },
+        config: {
+          systemInstruction: UNIFIED_SYSTEM_INSTRUCTION,
+        },
+      }),
+      CHATBOT_MODELS,
+    );
 
     return NextResponse.json({
       reply: (response.text ?? 'Unable to generate response right now.').trim(),

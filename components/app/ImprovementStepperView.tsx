@@ -1,7 +1,6 @@
 'use client';
 
 import { ArrowLeft, ArrowRight, MessageSquare } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useState } from 'react';
 import { FacialAnalysisRecord, ImproveStepKey } from '@/lib/types';
 
@@ -53,12 +52,7 @@ export function ImprovementStepperView({
   const activeStep = STEPS[stepIdx];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-10 text-left"
-    >
+    <div className="space-y-10 text-left">
       {/* Top-Left Open Header + Clean 4 Step Buttons (No Icons, No Extra Descriptions) */}
       <section className="space-y-6">
         <div>
@@ -598,6 +592,6 @@ export function ImprovementStepperView({
           )}
         </ol>
       </section>
-    </motion.div>
+    </div>
   );
 }

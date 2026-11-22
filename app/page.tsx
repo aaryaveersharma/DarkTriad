@@ -427,7 +427,7 @@ export default function HomePage() {
         activeView={activeView}
         onNavigate={(view) => {
           navigateToView(view);
-          window.scrollTo({ top: 0, behavior: view === 'chatbot' ? 'auto' : 'smooth' });
+          window.scrollTo({ top: 0, behavior: 'auto' });
         }}
         session={session}
         scanCount={analyses.length}

@@ -1,8 +1,9 @@
 import { Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 import {
-  extractBase64,
+  extractMimeAndBase64,
   extractReadableGeminiError,
+  FAST_VALIDATION_MODELS,
   generateWithRetryCascade,
   isTransientGeminiError,
 } from '@/lib/geminiServer';
@@ -28,10 +29,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid request payload.' }, { status: 400 });
   }
 
-  const clean = extractBase64(body.imageBase64);
+  const parsedImage = extractMimeAndBase64(body.imageBase64, body.mimeType);
   const expected = body.expectedProfile === 'side' ? 'side' : 'front';
 
-  if (!clean) {
+  if (!parsedImage) {
     return NextResponse.json({ error: 'Image data is required.' }, { status: 400 });
   }
 
@@ -43,8 +44,8 @@ export async function POST(req: Request) {
           parts: [
             {
               inlineData: {
-                mimeType: body.mimeType || 'image/jpeg',
-                data: clean,
+                mimeType: parsedImage.mimeType,
+                data: parsedImage.data,
               },
             },
             {
@@ -72,10 +73,7 @@ Determine:
           },
         },
       }),
-      [
-        { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 12000 },
-        { model: 'gemini-4-hydrogen', delayMs: 300, timeoutMs: 12000 },
-      ],
+      FAST_VALIDATION_MODELS,
     );
 
     const parsed = JSON.parse((response.text ?? '{}').trim()) as {

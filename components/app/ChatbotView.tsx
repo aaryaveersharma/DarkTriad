@@ -3,6 +3,10 @@
 import { ArrowUp, Loader2, Plus, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
+import {
+  compressDataUrlForApi,
+  compressFileToStoredPhoto,
+} from '@/lib/imageCompression';
 import { DataService } from '@/lib/storage/dataService';
 import {
   ChatMessage,
@@ -31,34 +35,6 @@ const OVERALL_QUICK_SUGGESTIONS: string[] = [
   'Create my workout & jawline routine',
   'Which hairstyle suits my face shape?',
 ];
-
-function compressAttachment(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, 900 / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
-      const w = Math.max(1, Math.round((img.naturalWidth || 600) * scale));
-      const h = Math.max(1, Math.round((img.naturalHeight || 600) * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not read attachment.'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.84));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Unsupported image format.'));
-    };
-    img.src = url;
-  });
-}
 
 export function ChatbotView({
   ownerId,
@@ -162,6 +138,16 @@ export function ChatbotView({
 
     setLoading(true);
     try {
+      const [compactAttach, compactFront, compactSide] = await Promise.all([
+        currentAttach ? compressDataUrlForApi(currentAttach, 560, 0.78) : Promise.resolve(null),
+        latestRecord?.frontPhoto?.dataUrl
+          ? compressDataUrlForApi(latestRecord.frontPhoto.dataUrl, 420, 0.75)
+          : Promise.resolve(null),
+        latestRecord?.sidePhoto?.dataUrl
+          ? compressDataUrlForApi(latestRecord.sidePhoto.dataUrl, 420, 0.75)
+          : Promise.resolve(null),
+      ]);
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,7 +158,7 @@ export function ChatbotView({
             role: m.role,
             text: m.text,
           })),
-          attachmentImageBase64: currentAttach ?? undefined,
+          attachmentImageBase64: compactAttach?.dataUrl ?? undefined,
           userContext: {
             profile: {
               name: profile.name || null,
@@ -186,8 +172,8 @@ export function ChatbotView({
             },
             latestAnalysisSummary: buildLatestAnalysisSummary(),
             progressSummary: buildProgressSummary(),
-            frontImageBase64: latestRecord?.frontPhoto?.dataUrl,
-            sideImageBase64: latestRecord?.sidePhoto?.dataUrl,
+            frontImageBase64: compactFront?.dataUrl,
+            sideImageBase64: compactSide?.dataUrl,
           },
         }),
       });
@@ -232,8 +218,8 @@ export function ChatbotView({
     e.target.value = '';
     if (!file) return;
     try {
-      const b64 = await compressAttachment(file);
-      setAttachment(b64);
+      const compressed = await compressFileToStoredPhoto(file, 560, 0.8);
+      setAttachment(compressed.dataUrl);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Unable to attach file.');
     }

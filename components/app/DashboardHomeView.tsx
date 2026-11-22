@@ -20,7 +20,6 @@ import {
   Trophy,
   User,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DataService } from '@/lib/storage/dataService';
 import {
@@ -323,12 +322,7 @@ export function DashboardHomeView({
   }, [analyses]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-10 text-left"
-    >
+    <div className="space-y-10 text-left">
       {/* HERO GREETING + TWO PILLS (WHITE OUTLINE CAM & WHITE ARROW) + CHATBOT CTA WITH BLINKING CURSOR */}
       <section className="space-y-5">
         <div className="flex items-start justify-between gap-4">
@@ -1143,6 +1137,6 @@ export function DashboardHomeView({
             })()}
         </div>
       </section>
-    </motion.div>
+    </div>
   );
 }

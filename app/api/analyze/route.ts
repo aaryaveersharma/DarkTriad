@@ -2,12 +2,19 @@ import crypto from 'node:crypto';
 import { Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 import {
-  extractBase64,
+  extractMimeAndBase64,
   extractReadableGeminiError,
+  FACIAL_ANALYSIS_MODELS,
   generateWithRetryCascade,
   isTransientGeminiError,
 } from '@/lib/geminiServer';
-import { FrontLandmarks, Point2D, SideLandmarks, UserProfile } from '@/lib/types';
+import {
+  FrontLandmarks,
+  Point2D,
+  PSLAnalysisResult,
+  SideLandmarks,
+  UserProfile,
+} from '@/lib/types';
 
 export const maxDuration = 60;
 
@@ -227,6 +234,48 @@ function sanitizeSideLandmarks(raw: SideLandmarks): SideLandmarks {
   return s;
 }
 
+function normalizeProportionsAndScore(result: PSLAnalysisResult): PSLAnalysisResult {
+  const normalized = { ...result };
+
+  // Ensure facial thirds sum cleanly to 100
+  if (normalized.proportions) {
+    const u = Math.max(15, Math.min(55, Number(normalized.proportions.upperThirdPct) || 33));
+    const m = Math.max(15, Math.min(55, Number(normalized.proportions.middleThirdPct) || 33));
+    const l = Math.max(15, Math.min(55, Number(normalized.proportions.lowerThirdPct) || 34));
+    const total = u + m + l;
+    const upperThirdPct = Math.round((u / total) * 100);
+    const middleThirdPct = Math.round((m / total) * 100);
+    const lowerThirdPct = 100 - upperThirdPct - middleThirdPct;
+    normalized.proportions = {
+      ...normalized.proportions,
+      upperThirdPct,
+      middleThirdPct,
+      lowerThirdPct,
+    };
+  }
+
+  // Ensure overallRating strictly aligns mathematically with category scores when present
+  const validCategoryScores = (normalized.categories ?? [])
+    .map((c) => c.score)
+    .filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
+
+  if (validCategoryScores.length >= 6) {
+    const avg =
+      validCategoryScores.reduce((sum, score) => sum + score, 0) /
+      validCategoryScores.length;
+    const reported = Number(normalized.overallRating);
+    if (!Number.isFinite(reported) || Math.abs(reported - avg) > 0.6) {
+      normalized.overallRating = Number(avg.toFixed(1));
+    } else {
+      normalized.overallRating = Number(reported.toFixed(1));
+    }
+  }
+
+  normalized.frontLandmarks = sanitizeFrontLandmarks(normalized.frontLandmarks);
+  normalized.sideLandmarks = sanitizeSideLandmarks(normalized.sideLandmarks);
+  return normalized;
+}
+
 export async function POST(req: Request) {
   if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json(
@@ -245,10 +294,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid request payload.' }, { status: 400 });
   }
 
-  const frontClean = extractBase64(body.frontImageBase64);
-  const sideClean = extractBase64(body.sideImageBase64);
+  const frontImg = extractMimeAndBase64(body.frontImageBase64, body.frontMimeType);
+  const sideImg = extractMimeAndBase64(body.sideImageBase64, body.sideMimeType);
 
-  if (!frontClean || !sideClean) {
+  if (!frontImg || !sideImg) {
     return NextResponse.json(
       { error: 'Both front-facing and side-profile images are required.' },
       { status: 400 },
@@ -271,9 +320,9 @@ export async function POST(req: Request) {
 
   const cacheKey = crypto
     .createHash('sha256')
-    .update(frontClean)
+    .update(frontImg.data)
     .update('|')
-    .update(sideClean)
+    .update(sideImg.data)
     .update('|')
     .update(profileContext)
     .update('|')
@@ -285,518 +334,439 @@ export async function POST(req: Request) {
     return NextResponse.json(cached.payload);
   }
 
-  const imageParts = [
+  const parts = [
     {
       inlineData: {
-        mimeType: body.frontMimeType || 'image/jpeg',
-        data: frontClean,
+        mimeType: frontImg.mimeType,
+        data: frontImg.data,
       },
     },
     {
       inlineData: {
-        mimeType: body.sideMimeType || 'image/jpeg',
-        data: sideClean,
+        mimeType: sideImg.mimeType,
+        data: sideImg.data,
       },
     },
-  ];
-
-  // PASS 1: Dedicated Anatomical Spatial Grounding + Proportions (high spatial precision)
-  const landmarkParts = [
-    ...imageParts,
     {
-      text: `Perform precision 2D anatomical landmark detection on Image 1 (FRONT PROFILE) and Image 2 (SIDE PROFILE).
-Coordinate system: x from 0 (left edge) to 1000 (right edge), y from 0 (top edge) to 1000 (bottom edge) inside EACH respective image.
+      text: `Analyze Image 1 (FRONT PROFILE) and Image 2 (SIDE PROFILE) of the same person in ONE unified pass: 2D landmark grounding, facial proportions, strict PSL scoring across 15 technical categories, and a personalized 4-step improvement plan + hairstyle.
 
-CRITICAL PLACEMENT RULES FOR IMAGE 1 (FRONT):
-- hairlineTop: top border of forehead where hair begins (never above hair top, never on eyebrows).
-- foreheadLeft, foreheadRight: lateral temple edges midway between hairlineTop and browMid.
-- browMid: center glabella between both eyebrows.
-- leftBrowInner, leftBrowPeak, leftBrowOuter & rightBrowInner, rightBrowPeak, rightBrowOuter: exact left/right eyebrow ridges sitting ABOVE the eyes (y < eyeTop.y).
-- leftEyeOuter, leftEyeTop, leftEyeInner, leftEyeBottom, leftPupil: exact contours of the eye on the VIEWER'S LEFT side (x_outer < x_pupil < x_inner).
-- rightEyeInner, rightEyeTop, rightEyeBottom, rightEyeOuter, rightPupil: exact contours of the eye on the VIEWER'S RIGHT side (x_inner < x_pupil < x_outer).
-- noseBridgeTop: nasal root / nasion directly BETWEEN inner eye corners (at eye vertical level, NOT on forehead and NOT on cheeks).
-- noseTip: center tip of nose.
-- noseBase: bottom center of nose / subnasale above upper lip.
-- nostrilLeft, nostrilRight: outer alar wing edges flanking noseBase.
-- cheekLeft, cheekRight: HIGH zygomatic cheekbone prominence directly inferior-lateral to outer eye corners (vertical y strictly BETWEEN eyeBottom.y and noseBase.y — NEVER down at mouth/hollow-cheek level!).
-- mouthLeft, mouthRight, upperLipTop, lowerLipBottom: exact lip vermilion boundaries strictly BETWEEN noseBase.y and chinBottom.y (NEVER on chin!).
-- jawLeft, jawRight: visible lateral mandibular jaw corners at mouth-to-chin vertical height (NEVER down on neck!).
-- chinLeft, chinRight, chinBottom: bottom contour & lowest edge of the chin bone ONLY (facial thirds STOP at chinBottom — NEVER extend into the neck!).
-- faceOutline: 12 ordered points tracing outer face boundary clockwise starting at forehead top-left -> forehead top-right -> temple right -> cheek right -> jaw right -> chin right -> chinBottom -> chin left -> jaw left -> cheek left -> temple left -> forehead top-left.
-
-CRITICAL PLACEMENT RULES FOR IMAGE 2 (SIDE PROFILE):
-- foreheadTop: upper forehead contour at hairline.
-- nasion: bridge dip at eye level.
-- noseTip: anterior nasal apex.
-- subnasale: base where nose meets upper lip.
-- upperLip, lowerLip: anterior vermilion edges of upper and lower lips.
-- chinTip: anterior-most edge of chin.
-- submentalVertex: under-chin angle where submental area meets upper neck.
-- earTragus: front of ear canal.
-- gonialCorner: posterior-inferior corner of the jawbone below earTragus.
-- neckBase: lower mid-anterior neck point to trace cervical alignment.
-- profileOutline: 10 ordered points tracing foreheadTop -> nasion -> noseTip -> subnasale -> upperLip -> lowerLip -> chinTip -> submentalVertex -> gonialCorner.
-
-Compute proportions accurately from these landmarks (upperThirdPct + middleThirdPct + lowerThirdPct = 100). If no clear human face is visible, set faceDetected: false.`,
-    },
-  ];
-
-  // PASS 2: Strict PSL Ratings, 15 Categories, & 4-Step Improvement Plan
-  const reportParts = [
-    ...imageParts,
-    {
-      text: `You are evaluating TWO photographs of the same person: Image 1 (FRONT PROFILE) and Image 2 (SIDE PROFILE).
 USER PROFILE CONTEXT: ${profileContext}
-${body.previousAnalysisSummary ? `PREVIOUS SCAN CONTEXT (do NOT auto-inflate scores): ${body.previousAnalysisSummary}` : ''}
+${body.previousAnalysisSummary ? `PREVIOUS SCAN CONTEXT (never auto-inflate scores): ${body.previousAnalysisSummary}` : ''}
 
-STRICT INSTRUCTIONS:
-1. STRICT NON-GENEROUS PSL RUBRIC:
-   - Never inflate ratings or give sympathy scores (average everyday face is ~4.5–5.5; >6.5 requires strong harmony & bone definition; 8+ is top percentile).
-   - overallRating MUST mathematically match the weighted category scores.
-   - Distinguish skeletal structure vs soft-tissue/body composition vs grooming vs skin quality vs photo lighting/angle distortion.
-   - Use observational non-diagnostic phrasing ("appears", "visual appearance suggests"). Respect selected gender morphology.
+PART 1 — PRECISION 2D LANDMARKS (0..1000 normalized per respective image):
+FRONT (Image 1):
+- hairlineTop < browMid < noseBase < chinBottom strictly top-to-bottom (facial thirds STOP at chinBottom, never on neck).
+- foreheadLeft, foreheadRight: lateral temple edges midway between hairlineTop and browMid.
+- leftBrowInner/Peak/Outer & rightBrowInner/Peak/Outer strictly ABOVE eyes.
+- leftEyeOuter < leftPupil < leftEyeInner (viewer left); rightEyeInner < rightPupil < rightEyeOuter (viewer right); include Top & Bottom eyelid points.
+- noseBridgeTop between inner eyes, noseTip, noseBase, nostrilLeft/Right flanking noseBase.
+- cheekLeft, cheekRight at high zygomatic arch strictly BETWEEN eyeBottom.y and noseBase.y (never near mouth).
+- mouthLeft < mouthRight, upperLipTop, lowerLipBottom strictly BETWEEN noseBase.y and chinBottom.y.
+- jawLeft, jawRight lateral mandibular angles at mouth-to-chin height (never neck); chinLeft, chinRight.
+- faceOutline: 12 clockwise outer contour points.
+SIDE (Image 2):
+- foreheadTop < nasion < noseTip < chinTip < neckBase; subnasale, upperLip, lowerLip, submentalVertex, earTragus, gonialCorner (below earTragus); profileOutline: 10 ordered contour points.
+proportions: upperThirdPct + middleThirdPct + lowerThirdPct = 100; eyeToFaceRatio, lipToNoseRatio, gonialAngleEstimate, facialWidthToHeightEstimate. Set faceDetected: false if no clear human face is visible.
 
-2. GENERATE ALL 15 TECHNICAL CATEGORIES in \`categories\`:
-   Facial Angularity, Sexual Dimorphism, Gonial Angle & Ramus, Infraorbital Support & Under-Eye Contour, Midface & Maxillary Appearance, Jaw & Chin Classification, Eye Area & Canthal Tilt, Nose Projection & Ratio, Lips & Philtrum Ratio, Forehead & Eyebrow Density, Facial Thirds & Proportions, Bilateral Symmetry, Neck-to-Jaw Transition, Skin & Soft-Tissue Quality, Overall Harmony.
+PART 2 — STRICT NON-GENEROUS PSL RATINGS & 15 CATEGORIES:
+- Average everyday face scores ~4.5–5.5; >6.5 requires strong harmony & bone definition; 8+ is top percentile. Never inflate scores.
+- overallRating MUST mathematically match the mean of the 15 categories.
+- Evaluate ALL 15 categories in \`categories\`: Facial Angularity, Sexual Dimorphism, Gonial Angle & Ramus, Infraorbital Support & Under-Eye Contour, Midface & Maxillary Appearance, Jaw & Chin Classification, Eye Area & Canthal Tilt, Nose Projection & Ratio, Lips & Philtrum Ratio, Forehead & Eyebrow Density, Facial Thirds & Proportions, Bilateral Symmetry, Neck-to-Jaw Transition, Skin & Soft-Tissue Quality, Overall Harmony.
+- Use observational non-diagnostic phrasing ("appears", "visual appearance suggests"). Separate bone structure vs soft tissue vs grooming/lighting.
 
-3. PERSONALIZED 4-STEP IMPROVEMENT PLAN + HAIRSTYLE:
-   - feedback: strengths, weaknesses, structural pros/cons, realistic ceiling, bloating/de-bloating notes, grooming fixes, gua sha note (clarify it cannot reshape bone).
-   - skincare: visible concerns, AM/PM routines, key ingredients, 2 real Indian-available products (e.g. Minimalist, Cetaphil, CeraVe, Neutrogena, Bioderma), usage, precautions, timeline.
-   - diet: personalized to profile (${isUnder18 ? 'USER IS UNDER 18: strictly no calorie deficits or restrictive dieting — focus on whole foods, sleep, hydration' : 'avoid extreme deficits'}), potassium/sodium balance, Indian meal ideas.
-   - exercises: cardio, resistance training, EXACTLY 4 neck & posture exercises with sets/reps/safety cues (so they display cleanly 1-4), realistic jaw/masseter note.
-   - hairstyle: cut suited to face shape/hairline, exact barber instructions, daily styling routine, alternative styles.
+PART 3 — PERSONALIZED 4-STEP IMPROVEMENT PLAN & HAIRSTYLE:
+- feedback: strongFeatures, weakFeatures, structuralProsCons, improvementPotential, bloatingPuffinessNotes, groomingImprovements, lifestyleAndDeBloating, guaShaGuidance (clarify gua sha cannot reshape bone).
+- skincare: visibleConcerns, morningRoutine, nightRoutine, keyIngredients, 2 real Indian-available products (Minimalist, Cetaphil, CeraVe, Neutrogena, Bioderma), precautions, expectedTimeline.
+- diet: personalized (${isUnder18 ? 'USER IS UNDER 18: strictly NO calorie deficits or restrictive dieting — focus on whole foods, sleep, hydration' : 'avoid extreme deficits'}), potassiumSodiumBalance, Indian meal ideas, safetyNote.
+- exercises: cardioPlan, resistancePlan, EXACTLY 4 neckExercises with setsReps & safetyCue, jawAndMasseterGuidance, recoveryAndSchedule.
+- hairstyle: recommendedStyle suited to visible face shape/hairline, whyItSuits, barberInstructions, stylingRoutine, alternativeStyles.
 
-4. HIGH-SIGNAL CONCISE RULE: Keep every assessment, explanation, and plan field sharp and direct (1–2 concise sentences per text field, max 2–3 bullets per list) for fast response.`,
+EFFICIENCY RULE: Keep every assessment, explanation, and plan field sharp and direct (1–2 crisp sentences per string field, 2–3 concise bullets per array).`,
     },
   ];
 
   try {
-    const [landmarkResp, reportResp] = await Promise.all([
-      generateWithRetryCascade(
-        (model) => ({
-          model,
-          contents: { parts: landmarkParts },
-          config: {
-            systemInstruction:
-              'You are a precision 2D facial anatomical landmark detector. Locate exact pixel coordinates (0-1000) directly on visible human eyes, eyebrows, nose, zygomatic cheekbones, lips, jawline, and side profile.',
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                faceDetected: { type: Type.BOOLEAN },
-                imageQualityWarning: { type: Type.STRING },
-                proportions: {
-                  type: Type.OBJECT,
-                  properties: {
-                    upperThirdPct: { type: Type.NUMBER },
-                    middleThirdPct: { type: Type.NUMBER },
-                    lowerThirdPct: { type: Type.NUMBER },
-                    eyeToFaceRatio: { type: Type.STRING },
-                    lipToNoseRatio: { type: Type.STRING },
-                    gonialAngleEstimate: { type: Type.STRING },
-                    facialWidthToHeightEstimate: { type: Type.STRING },
-                  },
-                  required: [
-                    'upperThirdPct',
-                    'middleThirdPct',
-                    'lowerThirdPct',
-                    'eyeToFaceRatio',
-                    'lipToNoseRatio',
-                    'gonialAngleEstimate',
-                    'facialWidthToHeightEstimate',
-                  ],
+    const resp = await generateWithRetryCascade(
+      (model) => ({
+        model,
+        contents: { parts },
+        config: {
+          systemInstruction:
+            'You are DARK TRIAD AI, a precision computer-vision facial landmark detector and strict PSL facial aesthetics analyst. Locate accurate 0-1000 coordinates, compute mathematically consistent non-inflated scores across all 15 categories, and deliver concise practical Indian grooming, nutrition, and training guidance.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              faceDetected: { type: Type.BOOLEAN },
+              imageQualityWarning: { type: Type.STRING },
+              overallRating: { type: Type.NUMBER },
+              pslTier: { type: Type.STRING },
+              faceShape: { type: Type.STRING },
+              overallConfidence: { type: Type.STRING },
+              skeletalVsSoftTissueSummary: { type: Type.STRING },
+              lightingAndAngleNote: { type: Type.STRING },
+              disclaimerNote: { type: Type.STRING },
+              summary: { type: Type.STRING },
+              proportions: {
+                type: Type.OBJECT,
+                properties: {
+                  upperThirdPct: { type: Type.NUMBER },
+                  middleThirdPct: { type: Type.NUMBER },
+                  lowerThirdPct: { type: Type.NUMBER },
+                  eyeToFaceRatio: { type: Type.STRING },
+                  lipToNoseRatio: { type: Type.STRING },
+                  gonialAngleEstimate: { type: Type.STRING },
+                  facialWidthToHeightEstimate: { type: Type.STRING },
                 },
-                frontLandmarks: {
-                  type: Type.OBJECT,
-                  properties: {
-                    hairlineTop: pointSchema,
-                    foreheadLeft: pointSchema,
-                    foreheadRight: pointSchema,
-                    browMid: pointSchema,
-                    leftBrowInner: pointSchema,
-                    leftBrowPeak: pointSchema,
-                    leftBrowOuter: pointSchema,
-                    rightBrowInner: pointSchema,
-                    rightBrowPeak: pointSchema,
-                    rightBrowOuter: pointSchema,
-                    noseBridgeTop: pointSchema,
-                    noseTip: pointSchema,
-                    noseBase: pointSchema,
-                    nostrilLeft: pointSchema,
-                    nostrilRight: pointSchema,
-                    upperLipTop: pointSchema,
-                    lowerLipBottom: pointSchema,
-                    chinBottom: pointSchema,
-                    leftEyeOuter: pointSchema,
-                    leftEyeTop: pointSchema,
-                    leftEyeInner: pointSchema,
-                    leftEyeBottom: pointSchema,
-                    leftPupil: pointSchema,
-                    rightPupil: pointSchema,
-                    rightEyeInner: pointSchema,
-                    rightEyeTop: pointSchema,
-                    rightEyeOuter: pointSchema,
-                    rightEyeBottom: pointSchema,
-                    cheekLeft: pointSchema,
-                    cheekRight: pointSchema,
-                    mouthLeft: pointSchema,
-                    mouthRight: pointSchema,
-                    jawLeft: pointSchema,
-                    jawRight: pointSchema,
-                    chinLeft: pointSchema,
-                    chinRight: pointSchema,
-                    faceOutline: { type: Type.ARRAY, items: pointSchema },
-                    confidence: { type: Type.STRING },
-                  },
-                  required: [
-                    'hairlineTop',
-                    'foreheadLeft',
-                    'foreheadRight',
-                    'browMid',
-                    'leftBrowInner',
-                    'leftBrowPeak',
-                    'leftBrowOuter',
-                    'rightBrowInner',
-                    'rightBrowPeak',
-                    'rightBrowOuter',
-                    'noseBridgeTop',
-                    'noseTip',
-                    'noseBase',
-                    'nostrilLeft',
-                    'nostrilRight',
-                    'upperLipTop',
-                    'lowerLipBottom',
-                    'chinBottom',
-                    'leftEyeOuter',
-                    'leftEyeTop',
-                    'leftEyeInner',
-                    'leftEyeBottom',
-                    'leftPupil',
-                    'rightPupil',
-                    'rightEyeInner',
-                    'rightEyeTop',
-                    'rightEyeOuter',
-                    'rightEyeBottom',
-                    'cheekLeft',
-                    'cheekRight',
-                    'mouthLeft',
-                    'mouthRight',
-                    'jawLeft',
-                    'jawRight',
-                    'chinLeft',
-                    'chinRight',
-                    'faceOutline',
-                    'confidence',
-                  ],
+                required: [
+                  'upperThirdPct',
+                  'middleThirdPct',
+                  'lowerThirdPct',
+                  'eyeToFaceRatio',
+                  'lipToNoseRatio',
+                  'gonialAngleEstimate',
+                  'facialWidthToHeightEstimate',
+                ],
+              },
+              frontLandmarks: {
+                type: Type.OBJECT,
+                properties: {
+                  hairlineTop: pointSchema,
+                  foreheadLeft: pointSchema,
+                  foreheadRight: pointSchema,
+                  browMid: pointSchema,
+                  leftBrowInner: pointSchema,
+                  leftBrowPeak: pointSchema,
+                  leftBrowOuter: pointSchema,
+                  rightBrowInner: pointSchema,
+                  rightBrowPeak: pointSchema,
+                  rightBrowOuter: pointSchema,
+                  noseBridgeTop: pointSchema,
+                  noseTip: pointSchema,
+                  noseBase: pointSchema,
+                  nostrilLeft: pointSchema,
+                  nostrilRight: pointSchema,
+                  upperLipTop: pointSchema,
+                  lowerLipBottom: pointSchema,
+                  chinBottom: pointSchema,
+                  leftEyeOuter: pointSchema,
+                  leftEyeTop: pointSchema,
+                  leftEyeInner: pointSchema,
+                  leftEyeBottom: pointSchema,
+                  leftPupil: pointSchema,
+                  rightPupil: pointSchema,
+                  rightEyeInner: pointSchema,
+                  rightEyeTop: pointSchema,
+                  rightEyeOuter: pointSchema,
+                  rightEyeBottom: pointSchema,
+                  cheekLeft: pointSchema,
+                  cheekRight: pointSchema,
+                  mouthLeft: pointSchema,
+                  mouthRight: pointSchema,
+                  jawLeft: pointSchema,
+                  jawRight: pointSchema,
+                  chinLeft: pointSchema,
+                  chinRight: pointSchema,
+                  faceOutline: { type: Type.ARRAY, items: pointSchema },
+                  confidence: { type: Type.STRING },
                 },
-                sideLandmarks: {
+                required: [
+                  'hairlineTop',
+                  'foreheadLeft',
+                  'foreheadRight',
+                  'browMid',
+                  'leftBrowInner',
+                  'leftBrowPeak',
+                  'leftBrowOuter',
+                  'rightBrowInner',
+                  'rightBrowPeak',
+                  'rightBrowOuter',
+                  'noseBridgeTop',
+                  'noseTip',
+                  'noseBase',
+                  'nostrilLeft',
+                  'nostrilRight',
+                  'upperLipTop',
+                  'lowerLipBottom',
+                  'chinBottom',
+                  'leftEyeOuter',
+                  'leftEyeTop',
+                  'leftEyeInner',
+                  'leftEyeBottom',
+                  'leftPupil',
+                  'rightPupil',
+                  'rightEyeInner',
+                  'rightEyeTop',
+                  'rightEyeOuter',
+                  'rightEyeBottom',
+                  'cheekLeft',
+                  'cheekRight',
+                  'mouthLeft',
+                  'mouthRight',
+                  'jawLeft',
+                  'jawRight',
+                  'chinLeft',
+                  'chinRight',
+                  'faceOutline',
+                  'confidence',
+                ],
+              },
+              sideLandmarks: {
+                type: Type.OBJECT,
+                properties: {
+                  foreheadTop: pointSchema,
+                  nasion: pointSchema,
+                  noseTip: pointSchema,
+                  subnasale: pointSchema,
+                  upperLip: pointSchema,
+                  lowerLip: pointSchema,
+                  chinTip: pointSchema,
+                  submentalVertex: pointSchema,
+                  earTragus: pointSchema,
+                  gonialCorner: pointSchema,
+                  neckBase: pointSchema,
+                  profileOutline: { type: Type.ARRAY, items: pointSchema },
+                  confidence: { type: Type.STRING },
+                },
+                required: [
+                  'foreheadTop',
+                  'nasion',
+                  'noseTip',
+                  'subnasale',
+                  'upperLip',
+                  'lowerLip',
+                  'chinTip',
+                  'submentalVertex',
+                  'earTragus',
+                  'gonialCorner',
+                  'neckBase',
+                  'profileOutline',
+                  'confidence',
+                ],
+              },
+              postureRating: {
+                type: Type.OBJECT,
+                properties: {
+                  score: { type: Type.NUMBER },
+                  neckAlignment: { type: Type.STRING },
+                  observation: { type: Type.STRING },
+                },
+                required: ['score', 'neckAlignment', 'observation'],
+              },
+              subScores: {
+                type: Type.ARRAY,
+                items: {
                   type: Type.OBJECT,
                   properties: {
-                    foreheadTop: pointSchema,
-                    nasion: pointSchema,
-                    noseTip: pointSchema,
-                    subnasale: pointSchema,
-                    upperLip: pointSchema,
-                    lowerLip: pointSchema,
-                    chinTip: pointSchema,
-                    submentalVertex: pointSchema,
-                    earTragus: pointSchema,
-                    gonialCorner: pointSchema,
-                    neckBase: pointSchema,
-                    profileOutline: { type: Type.ARRAY, items: pointSchema },
+                    label: { type: Type.STRING },
+                    score: { type: Type.NUMBER },
+                    tissueType: { type: Type.STRING },
                     confidence: { type: Type.STRING },
+                    observation: { type: Type.STRING },
+                  },
+                  required: ['label', 'score', 'tissueType', 'confidence', 'observation'],
+                },
+              },
+              categories: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                    score: { type: Type.NUMBER },
+                    confidence: { type: Type.STRING },
+                    classification: { type: Type.STRING },
+                    assessment: { type: Type.STRING },
+                    technicalExplanation: { type: Type.STRING },
+                    strengths: stringArray,
+                    weaknesses: stringArray,
+                    realisticImprovements: stringArray,
                   },
                   required: [
-                    'foreheadTop',
-                    'nasion',
-                    'noseTip',
-                    'subnasale',
-                    'upperLip',
-                    'lowerLip',
-                    'chinTip',
-                    'submentalVertex',
-                    'earTragus',
-                    'gonialCorner',
-                    'neckBase',
-                    'profileOutline',
+                    'id',
+                    'title',
+                    'score',
                     'confidence',
+                    'classification',
+                    'assessment',
+                    'technicalExplanation',
+                    'strengths',
+                    'weaknesses',
+                    'realisticImprovements',
                   ],
                 },
               },
-              required: [
-                'faceDetected',
-                'imageQualityWarning',
-                'proportions',
-                'frontLandmarks',
-                'sideLandmarks',
-              ],
-            },
-          },
-        }),
-        [
-          { model: 'gemini-4-hydrogen', delayMs: 0, timeoutMs: 18000 },
-          { model: 'gemini-3.1-flash-lite', delayMs: 200, timeoutMs: 14000 },
-        ],
-      ),
-      generateWithRetryCascade(
-        (model) => ({
-          model,
-          contents: { parts: reportParts },
-          config: {
-            systemInstruction:
-              'You are DARK TRIAD AI, a strict, evidence-based PSL facial aesthetics analyst and Indian grooming strategist. Output mathematically consistent scores and concise non-clinical guidance.',
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                overallRating: { type: Type.NUMBER },
-                pslTier: { type: Type.STRING },
-                faceShape: { type: Type.STRING },
-                overallConfidence: { type: Type.STRING },
-                skeletalVsSoftTissueSummary: { type: Type.STRING },
-                lightingAndAngleNote: { type: Type.STRING },
-                disclaimerNote: { type: Type.STRING },
-                summary: { type: Type.STRING },
-                postureRating: {
-                  type: Type.OBJECT,
-                  properties: {
-                    score: { type: Type.NUMBER },
-                    neckAlignment: { type: Type.STRING },
-                    observation: { type: Type.STRING },
-                  },
-                  required: ['score', 'neckAlignment', 'observation'],
-                },
-                subScores: {
-                  type: Type.ARRAY,
-                  items: {
+              improvementPlan: {
+                type: Type.OBJECT,
+                properties: {
+                  feedback: {
                     type: Type.OBJECT,
                     properties: {
-                      label: { type: Type.STRING },
-                      score: { type: Type.NUMBER },
-                      tissueType: { type: Type.STRING },
-                      confidence: { type: Type.STRING },
-                      observation: { type: Type.STRING },
-                    },
-                    required: ['label', 'score', 'tissueType', 'confidence', 'observation'],
-                  },
-                },
-                categories: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      title: { type: Type.STRING },
-                      score: { type: Type.NUMBER },
-                      confidence: { type: Type.STRING },
-                      classification: { type: Type.STRING },
-                      assessment: { type: Type.STRING },
-                      technicalExplanation: { type: Type.STRING },
-                      strengths: stringArray,
-                      weaknesses: stringArray,
-                      realisticImprovements: stringArray,
+                      strongFeatures: stringArray,
+                      weakFeatures: stringArray,
+                      structuralProsCons: { type: Type.STRING },
+                      improvementPotential: { type: Type.STRING },
+                      bloatingPuffinessNotes: { type: Type.STRING },
+                      groomingImprovements: stringArray,
+                      lifestyleAndDeBloating: stringArray,
+                      guaShaGuidance: { type: Type.STRING },
                     },
                     required: [
-                      'id',
-                      'title',
-                      'score',
-                      'confidence',
-                      'classification',
-                      'assessment',
-                      'technicalExplanation',
-                      'strengths',
-                      'weaknesses',
-                      'realisticImprovements',
+                      'strongFeatures',
+                      'weakFeatures',
+                      'structuralProsCons',
+                      'improvementPotential',
+                      'bloatingPuffinessNotes',
+                      'groomingImprovements',
+                      'lifestyleAndDeBloating',
+                      'guaShaGuidance',
+                    ],
+                  },
+                  skincare: {
+                    type: Type.OBJECT,
+                    properties: {
+                      visibleConcerns: stringArray,
+                      morningRoutine: stringArray,
+                      nightRoutine: stringArray,
+                      keyIngredients: stringArray,
+                      products: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            name: { type: Type.STRING },
+                            brand: { type: Type.STRING },
+                            keyIngredients: stringArray,
+                            concernAddressed: { type: Type.STRING },
+                            whyRecommended: { type: Type.STRING },
+                            howToUse: { type: Type.STRING },
+                            precautions: { type: Type.STRING },
+                          },
+                          required: [
+                            'name',
+                            'brand',
+                            'keyIngredients',
+                            'concernAddressed',
+                            'whyRecommended',
+                            'howToUse',
+                            'precautions',
+                          ],
+                        },
+                      },
+                      precautions: { type: Type.STRING },
+                      expectedTimeline: { type: Type.STRING },
+                    },
+                    required: [
+                      'visibleConcerns',
+                      'morningRoutine',
+                      'nightRoutine',
+                      'keyIngredients',
+                      'products',
+                      'precautions',
+                      'expectedTimeline',
+                    ],
+                  },
+                  diet: {
+                    type: Type.OBJECT,
+                    properties: {
+                      summary: { type: Type.STRING },
+                      calorieGuidance: { type: Type.STRING },
+                      proteinTarget: { type: Type.STRING },
+                      hydrationTarget: { type: Type.STRING },
+                      balancedMealIdeas: stringArray,
+                      potassiumSodiumBalance: { type: Type.STRING },
+                      safetyNote: { type: Type.STRING },
+                    },
+                    required: [
+                      'summary',
+                      'calorieGuidance',
+                      'proteinTarget',
+                      'hydrationTarget',
+                      'balancedMealIdeas',
+                      'potassiumSodiumBalance',
+                      'safetyNote',
+                    ],
+                  },
+                  exercises: {
+                    type: Type.OBJECT,
+                    properties: {
+                      cardioPlan: { type: Type.STRING },
+                      resistancePlan: { type: Type.STRING },
+                      neckExercises: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            name: { type: Type.STRING },
+                            setsReps: { type: Type.STRING },
+                            safetyCue: { type: Type.STRING },
+                          },
+                          required: ['name', 'setsReps', 'safetyCue'],
+                        },
+                      },
+                      jawAndMasseterGuidance: { type: Type.STRING },
+                      recoveryAndSchedule: { type: Type.STRING },
+                    },
+                    required: [
+                      'cardioPlan',
+                      'resistancePlan',
+                      'neckExercises',
+                      'jawAndMasseterGuidance',
+                      'recoveryAndSchedule',
+                    ],
+                  },
+                  hairstyle: {
+                    type: Type.OBJECT,
+                    properties: {
+                      recommendedStyle: { type: Type.STRING },
+                      whyItSuits: { type: Type.STRING },
+                      barberInstructions: { type: Type.STRING },
+                      stylingRoutine: { type: Type.STRING },
+                      alternativeStyles: stringArray,
+                    },
+                    required: [
+                      'recommendedStyle',
+                      'whyItSuits',
+                      'barberInstructions',
+                      'stylingRoutine',
+                      'alternativeStyles',
                     ],
                   },
                 },
-                improvementPlan: {
-                  type: Type.OBJECT,
-                  properties: {
-                    feedback: {
-                      type: Type.OBJECT,
-                      properties: {
-                        strongFeatures: stringArray,
-                        weakFeatures: stringArray,
-                        structuralProsCons: { type: Type.STRING },
-                        improvementPotential: { type: Type.STRING },
-                        bloatingPuffinessNotes: { type: Type.STRING },
-                        groomingImprovements: stringArray,
-                        lifestyleAndDeBloating: stringArray,
-                        guaShaGuidance: { type: Type.STRING },
-                      },
-                      required: [
-                        'strongFeatures',
-                        'weakFeatures',
-                        'structuralProsCons',
-                        'improvementPotential',
-                        'bloatingPuffinessNotes',
-                        'groomingImprovements',
-                        'lifestyleAndDeBloating',
-                        'guaShaGuidance',
-                      ],
-                    },
-                    skincare: {
-                      type: Type.OBJECT,
-                      properties: {
-                        visibleConcerns: stringArray,
-                        morningRoutine: stringArray,
-                        nightRoutine: stringArray,
-                        keyIngredients: stringArray,
-                        products: {
-                          type: Type.ARRAY,
-                          items: {
-                            type: Type.OBJECT,
-                            properties: {
-                              name: { type: Type.STRING },
-                              brand: { type: Type.STRING },
-                              keyIngredients: stringArray,
-                              concernAddressed: { type: Type.STRING },
-                              whyRecommended: { type: Type.STRING },
-                              howToUse: { type: Type.STRING },
-                              precautions: { type: Type.STRING },
-                            },
-                            required: [
-                              'name',
-                              'brand',
-                              'keyIngredients',
-                              'concernAddressed',
-                              'whyRecommended',
-                              'howToUse',
-                              'precautions',
-                            ],
-                          },
-                        },
-                        precautions: { type: Type.STRING },
-                        expectedTimeline: { type: Type.STRING },
-                      },
-                      required: [
-                        'visibleConcerns',
-                        'morningRoutine',
-                        'nightRoutine',
-                        'keyIngredients',
-                        'products',
-                        'precautions',
-                        'expectedTimeline',
-                      ],
-                    },
-                    diet: {
-                      type: Type.OBJECT,
-                      properties: {
-                        summary: { type: Type.STRING },
-                        calorieGuidance: { type: Type.STRING },
-                        proteinTarget: { type: Type.STRING },
-                        hydrationTarget: { type: Type.STRING },
-                        balancedMealIdeas: stringArray,
-                        potassiumSodiumBalance: { type: Type.STRING },
-                        safetyNote: { type: Type.STRING },
-                      },
-                      required: [
-                        'summary',
-                        'calorieGuidance',
-                        'proteinTarget',
-                        'hydrationTarget',
-                        'balancedMealIdeas',
-                        'potassiumSodiumBalance',
-                        'safetyNote',
-                      ],
-                    },
-                    exercises: {
-                      type: Type.OBJECT,
-                      properties: {
-                        cardioPlan: { type: Type.STRING },
-                        resistancePlan: { type: Type.STRING },
-                        neckExercises: {
-                          type: Type.ARRAY,
-                          items: {
-                            type: Type.OBJECT,
-                            properties: {
-                              name: { type: Type.STRING },
-                              setsReps: { type: Type.STRING },
-                              safetyCue: { type: Type.STRING },
-                            },
-                            required: ['name', 'setsReps', 'safetyCue'],
-                          },
-                        },
-                        jawAndMasseterGuidance: { type: Type.STRING },
-                        recoveryAndSchedule: { type: Type.STRING },
-                      },
-                      required: [
-                        'cardioPlan',
-                        'resistancePlan',
-                        'neckExercises',
-                        'jawAndMasseterGuidance',
-                        'recoveryAndSchedule',
-                      ],
-                    },
-                    hairstyle: {
-                      type: Type.OBJECT,
-                      properties: {
-                        recommendedStyle: { type: Type.STRING },
-                        whyItSuits: { type: Type.STRING },
-                        barberInstructions: { type: Type.STRING },
-                        stylingRoutine: { type: Type.STRING },
-                        alternativeStyles: stringArray,
-                      },
-                      required: [
-                        'recommendedStyle',
-                        'whyItSuits',
-                        'barberInstructions',
-                        'stylingRoutine',
-                        'alternativeStyles',
-                      ],
-                    },
-                  },
-                  required: ['feedback', 'skincare', 'diet', 'exercises', 'hairstyle'],
-                },
+                required: ['feedback', 'skincare', 'diet', 'exercises', 'hairstyle'],
               },
-              required: [
-                'overallRating',
-                'pslTier',
-                'faceShape',
-                'overallConfidence',
-                'skeletalVsSoftTissueSummary',
-                'lightingAndAngleNote',
-                'disclaimerNote',
-                'summary',
-                'postureRating',
-                'subScores',
-                'categories',
-                'improvementPlan',
-              ],
             },
+            required: [
+              'faceDetected',
+              'imageQualityWarning',
+              'overallRating',
+              'pslTier',
+              'faceShape',
+              'overallConfidence',
+              'skeletalVsSoftTissueSummary',
+              'lightingAndAngleNote',
+              'disclaimerNote',
+              'summary',
+              'proportions',
+              'frontLandmarks',
+              'sideLandmarks',
+              'postureRating',
+              'subScores',
+              'categories',
+              'improvementPlan',
+            ],
           },
-        }),
-        [
-          { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 18000 },
-          { model: 'gemini-4-hydrogen', delayMs: 250, timeoutMs: 20000 },
-        ],
-      ),
-    ]);
+        },
+      }),
+      FACIAL_ANALYSIS_MODELS,
+    );
 
-    const landmarkJson = JSON.parse(stripJsonFences(landmarkResp.text)) as {
-      faceDetected: boolean;
-      imageQualityWarning: string;
-      proportions: Record<string, unknown>;
-      frontLandmarks: FrontLandmarks;
-      sideLandmarks: SideLandmarks;
-    };
+    const parsed = JSON.parse(stripJsonFences(resp.text)) as PSLAnalysisResult;
+    const normalized = normalizeProportionsAndScore(parsed);
+    const combinedPayload = normalized as unknown as Record<string, unknown>;
 
-    const reportJson = JSON.parse(stripJsonFences(reportResp.text)) as Record<
-      string,
-      unknown
-    >;
-
-    const combinedPayload: Record<string, unknown> = {
-      ...reportJson,
-      faceDetected: landmarkJson.faceDetected,
-      imageQualityWarning: landmarkJson.imageQualityWarning,
-      proportions: landmarkJson.proportions,
-      frontLandmarks: sanitizeFrontLandmarks(landmarkJson.frontLandmarks),
-      sideLandmarks: sanitizeSideLandmarks(landmarkJson.sideLandmarks),
-    };
-
-    if (landmarkJson.faceDetected) {
+    if (normalized.faceDetected) {
       if (analysisCache.size >= MAX_CACHE_ENTRIES) {
         const oldestKey = analysisCache.keys().next().value;
         if (oldestKey) analysisCache.delete(oldestKey);

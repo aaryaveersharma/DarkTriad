@@ -30,6 +30,39 @@ const BOTTOM_NAV_ITEMS: Array<{
   { key: 'rankings', label: 'Rankings', icon: Trophy },
 ];
 
+function getViewOrderIndex(view: AppView): number {
+  switch (view) {
+    case 'dashboard':
+    case 'results':
+      return 0;
+    case 'chatbot':
+      return 1;
+    case 'rankings':
+      return 2;
+    case 'improve':
+      return 3;
+    case 'profile':
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+const VIEW_SLIDE_VARIANTS = {
+  enter: (direction: number) => ({
+    opacity: 0,
+    x: direction >= 0 ? 32 : -32,
+  }),
+  center: {
+    opacity: 1,
+    x: 0,
+  },
+  exit: (direction: number) => ({
+    opacity: 0,
+    x: direction >= 0 ? -28 : 28,
+  }),
+};
+
 export function StitchShell({
   activeView,
   onNavigate,
@@ -37,9 +70,29 @@ export function StitchShell({
   children,
 }: StitchShellProps) {
   const isChat = activeView === 'chatbot';
-  const [vvBox, setVvBox] = useState<{ top: number; height: number } | null>(null);
+  const [vvBox, setVvBox] = useState<{
+    top: number;
+    height: number;
+    keyboardOffset: number;
+  } | null>(null);
 
-  // Strictly lock document scroll & sync to visualViewport when in chatbot so mobile keyboard / scroll never pushes header or input bar
+  const [prevView, setPrevView] = useState<AppView>(activeView);
+  const [direction, setDirection] = useState<number>(1);
+
+  if (activeView !== prevView) {
+    const nextIdx = getViewOrderIndex(activeView);
+    const prevIdx = getViewOrderIndex(prevView);
+    setDirection(nextIdx >= prevIdx ? 1 : -1);
+    setPrevView(activeView);
+  }
+
+  const activeNavIndex = BOTTOM_NAV_ITEMS.findIndex(
+    (item) =>
+      activeView === item.key ||
+      (item.key === 'dashboard' && activeView === 'results'),
+  );
+
+  // Lock document scroll & sync to visualViewport when in chatbot so mobile keyboard never pushes header or input bar
   useEffect(() => {
     if (!isChat) {
       setVvBox(null);
@@ -59,9 +112,14 @@ export function StitchShell({
       window.scrollTo(0, 0);
       const vv = window.visualViewport;
       if (vv) {
+        const keyboardOffset = Math.max(
+          0,
+          Math.round(window.innerHeight - (vv.offsetTop + vv.height)),
+        );
         setVvBox({
           top: Math.max(0, Math.round(vv.offsetTop)),
           height: Math.round(vv.height),
+          keyboardOffset,
         });
       }
     };
@@ -82,6 +140,11 @@ export function StitchShell({
     };
   }, [isChat]);
 
+  const navBottomOffset = isChat && vvBox ? vvBox.keyboardOffset : 0;
+  const chatContentHeight = vvBox
+    ? `${Math.max(240, vvBox.height - 134)}px`
+    : 'calc(100dvh - 134px)';
+
   return (
     <div
       style={
@@ -92,15 +155,15 @@ export function StitchShell({
             }
           : undefined
       }
-      className={`stitch-dark-bg flex flex-col ${
+      className={`stitch-dark-bg flex flex-col overflow-x-clip ${
         isChat
           ? 'fixed inset-x-0 z-30 overflow-hidden overscroll-none'
           : 'min-h-screen'
       }`}
     >
-      {/* Clean, Minimal Top Bar: Dark Triad wordmark (without AI) + Single Profile Icon */}
-      <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      {/* Clean, Minimal Top Bar: Dark Triad wordmark + Single Profile Icon */}
+      <header className="sticky top-0 z-40 h-[60px] shrink-0 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
+        <div className="mx-auto flex h-full max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
           <button
             type="button"
             onClick={() => onNavigate('dashboard')}
@@ -129,36 +192,48 @@ export function StitchShell({
         </div>
       </header>
 
-      {/* Smooth animated view switching */}
+      {/* Directional horizontal slide switching across views (no vertical jumping) */}
       <main
-        className={`mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6 ${
-          isChat
-            ? 'min-h-0 flex flex-col pt-2 pb-1.5 overflow-hidden sm:pt-3'
-            : 'pt-5 pb-24 sm:pt-7'
+        className={`mx-auto w-full max-w-5xl flex-1 px-4 pt-3 sm:px-6 overflow-x-clip ${
+          isChat ? 'min-h-0 flex flex-col pb-16 overflow-hidden' : 'pb-24'
         }`}
       >
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" custom={direction} initial={false}>
           <motion.div
             key={activeView}
-            initial={isChat ? { opacity: 0 } : { opacity: 0, y: 8 }}
-            animate={isChat ? { opacity: 1 } : { opacity: 1, y: 0 }}
-            exit={isChat ? { opacity: 0 } : { opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className={isChat ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : undefined}
+            custom={direction}
+            variants={VIEW_SLIDE_VARIANTS}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.17, ease: [0.22, 1, 0.36, 1] }}
+            style={isChat ? { height: chatContentHeight } : undefined}
+            className={isChat ? 'flex flex-col overflow-hidden' : undefined}
           >
             {children}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Bottom Navigation Bar (Pinned inside flex flow on chat, fixed bottom on scrollable pages) */}
+      {/* Bottom Navigation Bar: Always fixed bottom so quick buttons stay anchored and slide strictly horizontally */}
       <nav
         aria-label="Primary dashboard navigation"
-        className={`border-t border-white/10 bg-[#121213]/92 backdrop-blur-xl ${
-          isChat ? 'shrink-0 z-40' : 'fixed inset-x-0 bottom-0 z-40'
-        }`}
+        style={navBottomOffset > 0 ? { bottom: `${navBottomOffset}px` } : undefined}
+        className="fixed inset-x-0 bottom-0 z-40 h-14 border-t border-white/10 bg-[#121213]/92 backdrop-blur-xl"
       >
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-around px-6">
+        <div className="relative mx-auto grid h-full max-w-5xl grid-cols-3 items-center px-6">
+          {activeNavIndex !== -1 && (
+            <motion.div
+              aria-hidden="true"
+              initial={false}
+              animate={{ x: `${activeNavIndex * 100}%` }}
+              transition={{ type: 'spring', stiffness: 440, damping: 34, mass: 0.85 }}
+              className="pointer-events-none absolute inset-y-1.5 left-6 flex w-[calc((100%-3rem)/3)] items-center justify-center"
+            >
+              <div className="h-9 w-12 rounded-xl border border-white/18 bg-white/12" />
+            </motion.div>
+          )}
+
           {BOTTOM_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive =
@@ -172,21 +247,14 @@ export function StitchShell({
                 onClick={() => onNavigate(item.key)}
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
-                className="relative flex h-11 w-14 items-center justify-center rounded-xl transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                className="relative z-10 mx-auto flex h-11 w-14 items-center justify-center rounded-xl transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               >
-                {isActive && (
-                  <motion.span
-                    layoutId="bottom-nav-active-bg"
-                    transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-                    className="absolute inset-1 rounded-xl bg-white/12 border border-white/18"
-                  />
-                )}
                 <motion.span
                   animate={{ scale: isActive ? 1.08 : 1 }}
                   transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  className={`relative z-10 ${
+                  className={
                     isActive ? 'text-[#f4f4f5]' : 'text-[#8e8e95] hover:text-[#d4d4d8]'
-                  }`}
+                  }
                 >
                   <Icon className="h-5 w-5" />
                 </motion.span>

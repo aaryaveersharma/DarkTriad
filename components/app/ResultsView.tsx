@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   RefreshCw,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useState } from 'react';
 import { FacialAnalysisRecord } from '@/lib/types';
 import {
@@ -106,12 +105,7 @@ export function ResultsView({
   ];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-10 text-left"
-    >
+    <div className="space-y-10 text-left">
       {/* Top-Left Open Score & Summary (No Date, No Confidence Pill, No Outer Card) */}
       <section className="space-y-5">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -479,6 +473,6 @@ export function ResultsView({
             'PSL is a community-derived aesthetic framework, not a clinical or scientific measure of human worth. Photographic measurements reflect visible geometry under current lighting and lens angle.'}
         </p>
       </section>
-    </motion.div>
+    </div>
   );
 }

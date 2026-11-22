@@ -13,6 +13,11 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  compressCanvasFrame,
+  compressDataUrlForApi,
+  compressFileToStoredPhoto,
+} from '@/lib/imageCompression';
 import { PSLAnalysisResult, StoredPhoto, UserProfile } from '@/lib/types';
 import { FaceAvatarsCluster } from './TriadEmblems';
 
@@ -31,47 +36,6 @@ interface CurvedCameraBoxProps {
     result: PSLAnalysisResult,
   ) => void;
   className?: string;
-}
-
-function compressFileToJpeg(file: File): Promise<StoredPhoto> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const maxDim = 640;
-      const scale = Math.min(
-        1,
-        maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1),
-      );
-      const width = Math.max(1, Math.round((img.naturalWidth || 720) * scale));
-      const height = Math.max(1, Math.round((img.naturalHeight || 960) * scale));
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not process image.'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve({
-        dataUrl: canvas.toDataURL('image/jpeg', 0.78),
-        width,
-        height,
-      });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(
-        new Error(
-          'Unsupported or unreadable image format. Please choose a JPEG or PNG photo.',
-        ),
-      );
-    };
-    img.src = objectUrl;
-  });
 }
 
 export function CurvedCameraBox({
@@ -241,18 +205,24 @@ export function CurvedCameraBox({
       }
 
       const controller = new AbortController();
-      const requestTimeout = window.setTimeout(() => controller.abort(), 36000);
+      const requestTimeout = window.setTimeout(() => controller.abort(), 48000);
 
       try {
+        // Compress both portraits to sharp 560px WebP payloads purely for faster analysis & lower API quota usage
+        const [frontApi, sideApi] = await Promise.all([
+          compressDataUrlForApi(front.dataUrl, 560, 0.8),
+          compressDataUrlForApi(side.dataUrl, 560, 0.8),
+        ]);
+
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
-            frontImageBase64: front.dataUrl,
-            frontMimeType: 'image/jpeg',
-            sideImageBase64: side.dataUrl,
-            sideMimeType: 'image/jpeg',
+            frontImageBase64: frontApi.dataUrl,
+            frontMimeType: frontApi.mimeType,
+            sideImageBase64: sideApi.dataUrl,
+            sideMimeType: sideApi.mimeType,
             profile: profile ?? null,
             previousAnalysisSummary: previousAnalysisSummary ?? null,
           }),
@@ -306,12 +276,14 @@ export function CurvedCameraBox({
       setErrorMessage('');
 
       try {
+        // Send compact 384px WebP payload for instant intake validation without consuming excess API quota
+        const compactForValidation = await compressDataUrlForApi(photo.dataUrl, 384, 0.76);
         const res = await fetch('/api/validate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            imageBase64: photo.dataUrl,
-            mimeType: 'image/jpeg',
+            imageBase64: compactForValidation.dataUrl,
+            mimeType: compactForValidation.mimeType,
             expectedProfile: slot,
           }),
         });
@@ -386,26 +358,10 @@ export function CurvedCameraBox({
     const video = videoRef.current;
     if (!video || validatingSlot) return;
 
-    const rawW = video.videoWidth || 960;
-    const rawH = video.videoHeight || 720;
-    const scale = Math.min(1, 640 / Math.max(rawW, rawH));
-    const width = Math.round(rawW * scale);
-    const height = Math.round(rawH * scale);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.translate(width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, width, height);
-
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    const captured = compressCanvasFrame(video, 720, 0.84);
+    if (!captured) return;
     // In oval camera: user captures front, then captures side
-    void validateAndAssignPhoto(activeSlot, { dataUrl, width, height }, false);
+    void validateAndAssignPhoto(activeSlot, captured, false);
   };
 
   const handleManualUploadFile = async (
@@ -417,9 +373,9 @@ export function CurvedCameraBox({
     if (!file) return;
 
     try {
-      const compressed = await compressFileToJpeg(file);
+      const stored = await compressFileToStoredPhoto(file, 720, 0.84);
       // Auto-start analysis when both are valid in manual upload flow
-      await validateAndAssignPhoto(slot, compressed, true);
+      await validateAndAssignPhoto(slot, stored, true);
     } catch (err) {
       setSlotErrors((prev) => ({
         ...prev,
@@ -434,8 +390,8 @@ export function CurvedCameraBox({
     if (!file) return;
 
     try {
-      const compressed = await compressFileToJpeg(file);
-      await validateAndAssignPhoto(activeSlot, compressed, false);
+      const stored = await compressFileToStoredPhoto(file, 720, 0.84);
+      await validateAndAssignPhoto(activeSlot, stored, false);
     } catch (err) {
       setSlotErrors((prev) => ({
         ...prev,
