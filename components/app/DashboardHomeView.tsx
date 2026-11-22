@@ -32,7 +32,6 @@ import {
   UserProfile,
 } from '@/lib/types';
 import { CurvedCameraBox } from '@/components/CurvedCameraBox';
-import PixelCard from '@/components/PixelCard';
 import {
   FrontMeasurementOverlay,
   SideMeasurementOverlay,
@@ -434,54 +433,31 @@ export function DashboardHomeView({
           {FEATURE_CARDS.map((card) => {
             const Icon = card.icon;
             return (
-              <PixelCard
+              <button
                 key={card.title}
-                colors={['#000000', '#09090b', '#18181b']}
-                glowColor="#000000"
-                shape="square"
-                origin="pointer"
-                gap={5}
-                pixelSize={2.5}
-                speed={35}
-                revealDuration={550}
-                spotlight={0.55}
-                glow={0.45}
-                opacity={0.95}
-                idlePresence={0.38}
-                idleOpacity={0.45}
-                fade={0.25}
-                trigger="hover"
-                clickPulse
-                intro={false}
-                noFocus
-                theme="dark"
-                className="group snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-white/14 bg-white/[0.08] backdrop-blur-sm text-left transition-all hover:border-white/35 hover:bg-white/[0.11] shadow-sm"
+                type="button"
+                onClick={card.onClick}
+                className="group snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-white/14 bg-white/[0.03] backdrop-blur-sm p-4 text-left transition-all hover:border-white/35 hover:bg-white/[0.06] flex flex-col justify-between shadow-sm"
               >
-                <button
-                  type="button"
-                  onClick={card.onClick}
-                  className="relative z-10 flex h-full w-full flex-col justify-between p-4 text-left cursor-pointer"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-medium tracking-[0.1em] text-[#8e8e95]">
-                        {card.tag}
-                      </span>
-                      <Icon className="h-4 w-4 text-[#8e8e95] group-hover:text-white transition-colors" />
-                    </div>
-                    <h3 className="mt-2.5 text-base font-medium text-[#f4f4f5] leading-snug">
-                      {card.title}
-                    </h3>
-                    <p className="mt-1.5 text-xs leading-relaxed text-[#9e9ea6]">
-                      {card.subtitle}
-                    </p>
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium tracking-[0.1em] text-[#8e8e95]">
+                      {card.tag}
+                    </span>
+                    <Icon className="h-4 w-4 text-[#8e8e95] group-hover:text-white transition-colors" />
                   </div>
-                  <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-[#f4f4f5] opacity-80 group-hover:opacity-100">
-                    <span>Open</span>
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              </PixelCard>
+                  <h3 className="mt-2.5 text-base font-medium text-[#f4f4f5] leading-snug">
+                    {card.title}
+                  </h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#9e9ea6]">
+                    {card.subtitle}
+                  </p>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-[#f4f4f5] opacity-80 group-hover:opacity-100">
+                  <span>Open</span>
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </span>
+              </button>
             );
           })}
         </div>
