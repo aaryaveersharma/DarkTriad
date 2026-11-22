@@ -1,13 +1,10 @@
 'use client';
 
 import {
-  ArrowLeft,
   Home,
-  LayoutList,
-  LogOut,
   MessageSquare,
-  Sparkles,
   Trophy,
+  User,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppView, AuthSession } from '@/lib/types';
@@ -36,97 +33,37 @@ export function StitchShell({
   activeView,
   onNavigate,
   session,
-  scanCount,
-  onBackToLanding,
-  onLogout,
   children,
 }: StitchShellProps) {
-  const initials = session?.email
-    ? session.email.slice(0, 2).toUpperCase()
-    : 'DT';
-
   return (
     <div className="stitch-dark-bg min-h-screen flex flex-col">
-      {/* Clean Single-Row Top Bar (No Hamburger Menu) */}
+      {/* Clean, Minimal Top Bar: Dark Triad wordmark (without AI) + Single Profile Icon (properly inset) */}
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[#121213]/88 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <button
             type="button"
             onClick={() => onNavigate('dashboard')}
-            className="flex items-baseline gap-2 text-left whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            className="flex items-center text-left whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
           >
             <span className="font-design-society text-xl sm:text-[22px] font-medium leading-none text-[#f4f4f5] whitespace-nowrap shrink-0">
               Dark Triad
             </span>
-            <span className="text-[11px] font-semibold tracking-[0.14em] text-[#a1a1aa] uppercase">
-              AI
-            </span>
           </button>
 
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => onNavigate('improve')}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                activeView === 'improve'
-                  ? 'bg-[#f4f4f5] text-[#0a0a0a]'
-                  : 'border border-white/15 bg-[#1b1b1e] text-[#e4e4e7] hover:bg-[#252529]'
-              }`}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Improve</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onNavigate('results')}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                activeView === 'results'
-                  ? 'bg-[#f4f4f5] text-[#0a0a0a]'
-                  : 'border border-white/15 bg-[#1b1b1e] text-[#e4e4e7] hover:bg-[#252529]'
-              }`}
-            >
-              <LayoutList className="h-3.5 w-3.5" />
-              <span>Scans ({scanCount})</span>
-            </button>
-
+          <div className="flex items-center shrink-0">
             <button
               type="button"
               onClick={() => onNavigate('profile')}
-              title={session?.email ?? 'Profile & Settings'}
+              title={session?.email ? `Profile: ${session.email}` : 'Profile'}
               aria-label="Profile"
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-semibold transition-colors shrink-0 ${
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors shrink-0 ${
                 activeView === 'profile'
                   ? 'border-[#f4f4f5] bg-[#f4f4f5] text-[#0a0a0a]'
-                  : 'border-white/20 bg-[#27272a] text-[#f4f4f5] hover:border-white/40'
+                  : 'border-white/18 bg-[#1a1a1e] text-[#f4f4f5] hover:border-white/35 hover:bg-[#242429]'
               }`}
             >
-              {initials}
+              <User className="h-4 w-4" />
             </button>
-
-            {!session && onBackToLanding && (
-              <button
-                type="button"
-                onClick={onBackToLanding}
-                title="Back to landing page"
-                aria-label="Back to landing page"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-[#1b1b1e] text-[#d4d4d8] hover:text-white shrink-0"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-              </button>
-            )}
-
-            {session && onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                title="Log out"
-                aria-label="Log out"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-[#1b1b1e] text-[#d4d4d8] hover:text-white shrink-0"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
         </div>
       </header>

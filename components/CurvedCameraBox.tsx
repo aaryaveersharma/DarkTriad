@@ -15,10 +15,6 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PSLAnalysisResult, StoredPhoto, UserProfile } from '@/lib/types';
 import { FaceAvatarsCluster } from './TriadEmblems';
-import {
-  FrontMeasurementOverlay,
-  SideMeasurementOverlay,
-} from './app/FacialMeasurementOverlay';
 
 type BoxMode = 'idle' | 'requesting' | 'camera' | 'analyzing' | 'error';
 type CaptureSlot = 'front' | 'side';
@@ -90,7 +86,7 @@ export function CurvedCameraBox({
   const [liveFeedActive, setLiveFeedActive] = useState(false);
   const [cameraNotice, setCameraNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [inlineUploadOpen, setInlineUploadOpen] = useState(false);
+  const [manualUploadOpen, setManualUploadOpen] = useState(false);
 
   const [frontPhoto, setFrontPhoto] = useState<StoredPhoto | null>(null);
   const [sidePhoto, setSidePhoto] = useState<StoredPhoto | null>(null);
@@ -101,6 +97,8 @@ export function CurvedCameraBox({
   const streamRef = useRef<MediaStream | null>(null);
   const lastTriggerRef = useRef<number>(externalTriggerCount);
   const resultCacheRef = useRef<Map<string, PSLAnalysisResult>>(new Map());
+  const isAnalyzingRef = useRef(false);
+
   const frontPhotoRef = useRef<StoredPhoto | null>(null);
   const sidePhotoRef = useRef<StoredPhoto | null>(null);
   frontPhotoRef.current = frontPhoto;
@@ -109,10 +107,9 @@ export function CurvedCameraBox({
   const onAnalysisCompleteRef = useRef(onAnalysisComplete);
   onAnalysisCompleteRef.current = onAnalysisComplete;
 
-  const frontUploadId = useId();
-  const frontCameraId = useId();
-  const sideUploadId = useId();
-  const sideCameraId = useId();
+  const frontManualUploadId = useId();
+  const sideManualUploadId = useId();
+  const ovalCameraInputId = useId();
 
   const stopCameraStream = useCallback(() => {
     if (streamRef.current) {
@@ -138,7 +135,7 @@ export function CurvedCameraBox({
     if (!videoEl || !stream) return;
     videoEl.srcObject = stream;
     void videoEl.play().catch(() => {
-      // Autoplay controlled via muted + playsInline
+      // Handled
     });
   }, [mode, liveFeedActive, activeSlot]);
 
@@ -191,7 +188,7 @@ export function CurvedCameraBox({
         !navigator.mediaDevices.getUserMedia
       ) {
         setCameraNotice(
-          'Live webcam unavailable here. Tap inside the oval or use the FRONT / SIDE buttons below.',
+          'Live webcam unavailable here. Tap inside the oval to use your device camera.',
         );
         setLiveFeedActive(false);
         setMode('camera');
@@ -207,8 +204,8 @@ export function CurvedCameraBox({
       } catch (err) {
         const msg =
           err instanceof Error && err.name === 'NotAllowedError'
-            ? 'Camera permission blocked in preview frame. Tap inside the oval or upload Front & Side below.'
-            : 'Live webcam unavailable inside preview frame. Tap inside the oval or upload Front & Side below.';
+            ? 'Camera permission blocked. Tap inside the oval to take a selfie.'
+            : 'Live webcam unavailable in this frame. Tap inside the oval to take a selfie.';
         setCameraNotice(msg);
         setLiveFeedActive(false);
         setMode('camera');
@@ -226,6 +223,9 @@ export function CurvedCameraBox({
 
   const runAnalysis = useCallback(
     async (front: StoredPhoto, side: StoredPhoto) => {
+      if (isAnalyzingRef.current) return;
+      isAnalyzingRef.current = true;
+
       stopCameraStream();
       setMode('analyzing');
       setErrorMessage('');
@@ -233,6 +233,7 @@ export function CurvedCameraBox({
       const clientCacheKey = `${front.dataUrl.length}:${front.dataUrl.slice(-48)}|${side.dataUrl.length}:${side.dataUrl.slice(-48)}|${profile?.updatedAt ?? ''}`;
       const cachedResult = resultCacheRef.current.get(clientCacheKey);
       if (cachedResult) {
+        isAnalyzingRef.current = false;
         onAnalysisCompleteRef.current(front, side, cachedResult);
         return;
       }
@@ -289,6 +290,7 @@ export function CurvedCameraBox({
         );
         setMode('error');
       } finally {
+        isAnalyzingRef.current = false;
         window.clearTimeout(requestTimeout);
       }
     },
@@ -296,7 +298,7 @@ export function CurvedCameraBox({
   );
 
   const validateAndAssignPhoto = useCallback(
-    async (slot: CaptureSlot, photo: StoredPhoto, autoStartIfReady = false) => {
+    async (slot: CaptureSlot, photo: StoredPhoto, autoStartIfBothValid = false) => {
       setValidatingSlot(slot);
       setSlotErrors((prev) => ({ ...prev, [slot]: undefined }));
       setErrorMessage('');
@@ -330,7 +332,7 @@ export function CurvedCameraBox({
           const fallbackMsg =
             slot === 'front'
               ? 'Invalid Image. Please upload a clear front-facing photograph.'
-              : 'Incorrect Profile. Please upload a genuine side-profile photograph.';
+              : 'Incorrect Profile. Please upload a genuine 90° side-profile photograph.';
           setSlotErrors((prev) => ({
             ...prev,
             [slot]: payload.message || fallbackMsg,
@@ -340,11 +342,14 @@ export function CurvedCameraBox({
           return;
         }
 
+        // Photograph is VALID
         if (slot === 'front') {
           frontPhotoRef.current = photo;
           setFrontPhoto(photo);
+          // In camera mode: once front validates, enable side-profile capture
           setActiveSlot('side');
-          if (autoStartIfReady && sidePhotoRef.current) {
+
+          if (autoStartIfBothValid && sidePhotoRef.current) {
             setValidatingSlot(null);
             void runAnalysis(photo, sidePhotoRef.current);
             return;
@@ -352,7 +357,9 @@ export function CurvedCameraBox({
         } else {
           sidePhotoRef.current = photo;
           setSidePhoto(photo);
-          if (autoStartIfReady && frontPhotoRef.current) {
+
+          // As soon as side validates (with front already valid), auto start analysis
+          if (autoStartIfBothValid && frontPhotoRef.current) {
             setValidatingSlot(null);
             void runAnalysis(frontPhotoRef.current, photo);
             return;
@@ -395,26 +402,42 @@ export function CurvedCameraBox({
     ctx.drawImage(video, 0, 0, width, height);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    // In oval camera: user captures front, then captures side
     void validateAndAssignPhoto(activeSlot, { dataUrl, width, height }, false);
   };
 
-  const handleFileChange = async (
+  const handleManualUploadFile = async (
     slot: CaptureSlot,
     e: React.ChangeEvent<HTMLInputElement>,
-    autoStartIfReady = false,
   ) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
 
-    setActiveSlot(slot);
     try {
       const compressed = await compressFileToJpeg(file);
-      await validateAndAssignPhoto(slot, compressed, autoStartIfReady);
+      // Auto-start analysis when both are valid in manual upload flow
+      await validateAndAssignPhoto(slot, compressed, true);
     } catch (err) {
       setSlotErrors((prev) => ({
         ...prev,
         [slot]: err instanceof Error ? err.message : 'Could not read that photo.',
+      }));
+    }
+  };
+
+  const handleOvalCameraFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      const compressed = await compressFileToJpeg(file);
+      await validateAndAssignPhoto(activeSlot, compressed, false);
+    } catch (err) {
+      setSlotErrors((prev) => ({
+        ...prev,
+        [activeSlot]: err instanceof Error ? err.message : 'Could not read that photo.',
       }));
     }
   };
@@ -435,7 +458,6 @@ export function CurvedCameraBox({
   };
 
   const bothValidated = Boolean(frontPhoto && sidePhoto && !validatingSlot);
-  const activeNativeInputId = activeSlot === 'front' ? frontCameraId : sideCameraId;
 
   return (
     <section
@@ -443,39 +465,31 @@ export function CurvedCameraBox({
       className="scroll-mt-24 mx-auto max-w-5xl px-4 pb-16 sm:px-6 sm:pb-24"
     >
       <div className="relative overflow-hidden rounded-[36px] sm:rounded-[48px] border border-[#0a0a0a]/15 bg-[#e6e6e3] p-5 sm:p-10 md:p-14 shadow-[0_24px_60px_-28px_rgba(10,10,10,0.22)]">
-        {/* Isolated inputs for camera-mode and inline upload-mode */}
+        {/* Hidden File Inputs */}
         <input
-          id={frontUploadId}
+          id={frontManualUploadId}
           type="file"
           accept="image/*"
-          onChange={(e) => void handleFileChange('front', e, mode === 'idle')}
+          onChange={(e) => void handleManualUploadFile('front', e)}
           className="sr-only"
         />
         <input
-          id={frontCameraId}
+          id={sideManualUploadId}
+          type="file"
+          accept="image/*"
+          onChange={(e) => void handleManualUploadFile('side', e)}
+          className="sr-only"
+        />
+        <input
+          id={ovalCameraInputId}
           type="file"
           accept="image/*"
           capture="user"
-          onChange={(e) => void handleFileChange('front', e, false)}
-          className="sr-only"
-        />
-        <input
-          id={sideUploadId}
-          type="file"
-          accept="image/*"
-          onChange={(e) => void handleFileChange('side', e, mode === 'idle')}
-          className="sr-only"
-        />
-        <input
-          id={sideCameraId}
-          type="file"
-          accept="image/*"
-          capture="user"
-          onChange={(e) => void handleFileChange('side', e, false)}
+          onChange={(e) => void handleOvalCameraFile(e)}
           className="sr-only"
         />
 
-        {/* IDLE STATE */}
+        {/* 1. IDLE STATE & MANUAL UPLOAD FLOW */}
         {mode === 'idle' && (
           <div className="flex flex-col items-center justify-center py-6 text-center sm:py-10">
             <p className="text-[11px] font-medium tracking-[0.12em] text-[#0a0a0a]/65 mb-6">
@@ -505,114 +519,150 @@ export function CurvedCameraBox({
 
               <button
                 type="button"
-                onClick={() => setInlineUploadOpen((open) => !open)}
+                onClick={() => setManualUploadOpen((open) => !open)}
                 className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-[#0a0a0a]/80 hover:text-[#0a0a0a] underline underline-offset-4 transition-colors"
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Or upload front &amp; side selfies</span>
               </button>
 
-              {/* Inline Two Stacked "+" Buttons (Front on top, Side directly below) */}
-              {inlineUploadOpen && (
-                <div className="mt-1 flex w-full flex-col gap-2.5 text-left">
-                  <label
-                    htmlFor={frontUploadId}
-                    className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
-                      frontPhoto
-                        ? 'border-emerald-700/40 bg-emerald-600/10'
-                        : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      {frontPhoto ? (
-                        <img
-                          src={frontPhoto.dataUrl}
-                          alt="Front preview"
-                          className="h-9 w-9 rounded-xl object-cover shrink-0 border border-[#0a0a0a]/15"
-                        />
-                      ) : (
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/30 bg-white text-[#0a0a0a]">
-                          {validatingSlot === 'front' ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Plus className="h-4 w-4" />
-                          )}
+              {/* MANUAL UPLOAD FLOW: Two Vertical Stacked [+] Buttons */}
+              {manualUploadOpen && (
+                <div className="mt-2 flex w-full flex-col gap-3.5 text-left">
+                  {/* FRONT PROFILE [+] */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-xs font-semibold text-[#0a0a0a]">
+                        Front Profile
+                      </span>
+                      {validatingSlot === 'front' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0a0a0a]/70">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Validating...</span>
                         </span>
-                      )}
-                      <div className="min-w-0">
-                        <span className="block text-xs font-semibold text-[#0a0a0a]">
-                          Front
+                      ) : frontPhoto ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                          <Check className="h-4 w-4 stroke-[2.5]" />
+                          <span>Validated</span>
                         </span>
-                        <span className="block text-[11px] text-[#3f3f3c] truncate">
-                          {validatingSlot === 'front'
-                            ? 'Validating front portrait...'
-                            : frontPhoto
-                              ? 'Front profile validated'
-                              : 'Upload straight eye-level selfie'}
-                        </span>
-                      </div>
+                      ) : null}
                     </div>
-                    {frontPhoto && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
-                  </label>
 
-                  {slotErrors.front && (
-                    <p className="text-[11px] font-medium text-red-800 px-1">
-                      {slotErrors.front}
-                    </p>
-                  )}
-
-                  <label
-                    htmlFor={sideUploadId}
-                    className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
-                      sidePhoto
-                        ? 'border-emerald-700/40 bg-emerald-600/10'
-                        : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      {sidePhoto ? (
-                        <img
-                          src={sidePhoto.dataUrl}
-                          alt="Side preview"
-                          className="h-9 w-9 rounded-xl object-cover shrink-0 border border-[#0a0a0a]/15"
-                        />
-                      ) : (
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/30 bg-white text-[#0a0a0a]">
-                          {validatingSlot === 'side' ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Plus className="h-4 w-4" />
-                          )}
-                        </span>
-                      )}
-                      <div className="min-w-0">
-                        <span className="block text-xs font-semibold text-[#0a0a0a]">
-                          Side
-                        </span>
-                        <span className="block text-[11px] text-[#3f3f3c] truncate">
-                          {validatingSlot === 'side'
-                            ? 'Validating side profile...'
-                            : sidePhoto
-                              ? 'Side profile validated — starting scan...'
-                              : 'Upload 90° jawline & neck view'}
-                        </span>
+                    <label
+                      htmlFor={frontManualUploadId}
+                      className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3.5 transition-colors ${
+                        frontPhoto
+                          ? 'border-emerald-600/50 bg-emerald-500/10 hover:border-emerald-600'
+                          : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {frontPhoto ? (
+                          <img
+                            src={frontPhoto.dataUrl}
+                            alt="Front profile"
+                            className="h-10 w-10 rounded-xl object-cover shrink-0 border border-emerald-600/30"
+                          />
+                        ) : (
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/35 bg-white text-[#0a0a0a]">
+                            {validatingSlot === 'front' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="h-5 w-5" />
+                            )}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <span className="block text-xs font-medium text-[#0a0a0a]">
+                            {frontPhoto ? 'Front Profile Uploaded' : 'Upload Front Profile'}
+                          </span>
+                          <span className="block text-[11px] text-[#3f3f3c] truncate">
+                            {frontPhoto ? 'Tap [+] to replace' : 'Straight gaze at eye level'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    {sidePhoto && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
-                  </label>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#0a0a0a]/15 bg-white text-[#0a0a0a] shadow-xs">
+                        <Plus className="h-4 w-4" />
+                      </span>
+                    </label>
 
-                  {slotErrors.side && (
-                    <p className="text-[11px] font-medium text-red-800 px-1">
-                      {slotErrors.side}
-                    </p>
-                  )}
+                    {slotErrors.front && (
+                      <p className="text-[11px] font-medium text-red-800 px-1">
+                        {slotErrors.front}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* SIDE PROFILE [+] */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-xs font-semibold text-[#0a0a0a]">
+                        Side Profile
+                      </span>
+                      {validatingSlot === 'side' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0a0a0a]/70">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Validating...</span>
+                        </span>
+                      ) : sidePhoto ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                          <Check className="h-4 w-4 stroke-[2.5]" />
+                          <span>Validated</span>
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <label
+                      htmlFor={sideManualUploadId}
+                      className={`cursor-pointer flex items-center justify-between gap-3 rounded-2xl border px-4 py-3.5 transition-colors ${
+                        sidePhoto
+                          ? 'border-emerald-600/50 bg-emerald-500/10 hover:border-emerald-600'
+                          : 'border-[#0a0a0a]/20 bg-[#f1f1ee] hover:border-[#0a0a0a]/45'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {sidePhoto ? (
+                          <img
+                            src={sidePhoto.dataUrl}
+                            alt="Side profile"
+                            className="h-10 w-10 rounded-xl object-cover shrink-0 border border-emerald-600/30"
+                          />
+                        ) : (
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-[#0a0a0a]/35 bg-white text-[#0a0a0a]">
+                            {validatingSlot === 'side' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="h-5 w-5" />
+                            )}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <span className="block text-xs font-medium text-[#0a0a0a]">
+                            {sidePhoto ? 'Side Profile Uploaded' : 'Upload Side Profile'}
+                          </span>
+                          <span className="block text-[11px] text-[#3f3f3c] truncate">
+                            {sidePhoto ? 'Tap [+] to replace' : '90° lateral jawline profile'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#0a0a0a]/15 bg-white text-[#0a0a0a] shadow-xs">
+                        <Plus className="h-4 w-4" />
+                      </span>
+                    </label>
+
+                    {slotErrors.side && (
+                      <p className="text-[11px] font-medium text-red-800 px-1">
+                        {slotErrors.side}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* REQUESTING CAMERA PERMISSION STATE */}
+        {/* 2. REQUESTING PERMISSION STATE */}
         {mode === 'requesting' && (
           <div className="flex min-h-[360px] flex-col items-center justify-center gap-5 text-center">
             <div className="flex h-36 w-28 items-center justify-center rounded-[50%] border-2 border-dashed border-[#0a0a0a]/35 bg-[#dadad7]/70">
@@ -631,7 +681,7 @@ export function CurvedCameraBox({
                 type="button"
                 onClick={() => {
                   stopCameraStream();
-                  setInlineUploadOpen(true);
+                  setManualUploadOpen(true);
                   setMode('idle');
                 }}
                 className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-xs sm:text-sm font-medium text-[#f3f3f1]"
@@ -650,9 +700,10 @@ export function CurvedCameraBox({
           </div>
         )}
 
-        {/* CAMERA / OVAL CLICKER + DUAL FRONT & SIDE VALIDATED UPLOADER */}
+        {/* 3. OVAL CAMERA CAPTURE FLOW (Redundant bottom boxes removed!) */}
         {mode === 'camera' && (
           <div className="flex flex-col gap-5">
+            {/* Camera Header with visible Green Success Ticks for Front and Side */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-medium tracking-[0.12em] text-[#0a0a0a]/70">
@@ -660,13 +711,48 @@ export function CurvedCameraBox({
                     ? '[UPDATING SELFIE · COMPARE AGAINST PREVIOUS SCAN]'
                     : '[STRICT TWO-ANGLE VALIDATION · FRONT & SIDE PROFILE]'}
                 </p>
-                <p className="pomelli-display text-2xl sm:text-3xl text-[#0a0a0a] mt-1">
-                  {bothValidated
-                    ? 'Both profiles validated — ready!'
-                    : activeSlot === 'front'
-                      ? 'Slot 1: Front Profile'
-                      : 'Slot 2: 90° Side Profile'}
-                </p>
+
+                <div className="flex items-center gap-2.5 mt-2 flex-wrap">
+                  {/* Front Profile Label with Green Success Tick */}
+                  <div
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                      frontPhoto
+                        ? 'border-emerald-700/40 bg-emerald-600/10 text-emerald-900 font-semibold'
+                        : activeSlot === 'front'
+                          ? 'border-[#0a0a0a] bg-white text-[#0a0a0a] font-medium'
+                          : 'border-[#0a0a0a]/15 bg-[#dadad7]/40 text-[#0a0a0a]/60'
+                    }`}
+                  >
+                    <span>Front Profile</span>
+                    {validatingSlot === 'front' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
+                    ) : frontPhoto ? (
+                      <Check className="h-4 w-4 text-emerald-700 stroke-[3]" />
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-[#0a0a0a]/30" />
+                    )}
+                  </div>
+
+                  {/* Side Profile Label with Green Success Tick */}
+                  <div
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                      sidePhoto
+                        ? 'border-emerald-700/40 bg-emerald-600/10 text-emerald-900 font-semibold'
+                        : activeSlot === 'side'
+                          ? 'border-[#0a0a0a] bg-white text-[#0a0a0a] font-medium'
+                          : 'border-[#0a0a0a]/15 bg-[#dadad7]/40 text-[#0a0a0a]/60'
+                    }`}
+                  >
+                    <span>Side Profile</span>
+                    {validatingSlot === 'side' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
+                    ) : sidePhoto ? (
+                      <Check className="h-4 w-4 text-emerald-700 stroke-[3]" />
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-[#0a0a0a]/30" />
+                    )}
+                  </div>
+                </div>
               </div>
 
               <button
@@ -680,7 +766,7 @@ export function CurvedCameraBox({
               </button>
             </div>
 
-            {/* Interactive Oval Viewport + Immediate Action Button right below it */}
+            {/* Oval Camera Viewport */}
             <div className="flex flex-col items-center gap-3.5">
               <div className="relative mx-auto aspect-[4/3] w-full max-w-xl overflow-hidden rounded-[28px] border border-[#0a0a0a]/20 bg-[#141414]">
                 {liveFeedActive ? (
@@ -730,7 +816,7 @@ export function CurvedCameraBox({
                   </>
                 ) : (
                   <label
-                    htmlFor={bothValidated ? undefined : activeNativeInputId}
+                    htmlFor={bothValidated ? undefined : ovalCameraInputId}
                     className={`flex h-full w-full flex-col items-center justify-center p-4 text-center text-white ${
                       bothValidated ? 'cursor-default' : 'cursor-pointer'
                     }`}
@@ -751,18 +837,19 @@ export function CurvedCameraBox({
                       )}
                       <span className="mt-2 text-[11px] font-medium tracking-[0.06em] text-white/90">
                         {validatingSlot
-                          ? `Checking ${validatingSlot}...`
+                          ? `Validating ${validatingSlot}...`
                           : bothValidated
                             ? 'Front & Side Ready'
                             : activeSlot === 'front'
-                              ? 'Tap Oval: Front Selfie'
-                              : 'Tap Oval: 90° Side Selfie'}
+                              ? 'Tap Oval: Take Front Selfie'
+                              : 'Tap Oval: Take 90° Side Selfie'}
                       </span>
                     </div>
                   </label>
                 )}
               </div>
 
+              {/* Validation errors */}
               {(slotErrors.front || slotErrors.side) && !bothValidated && (
                 <div className="flex max-w-xl items-start gap-2 rounded-2xl border border-red-700/30 bg-red-600/10 px-4 py-2.5 text-xs font-medium text-red-900">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -770,7 +857,7 @@ export function CurvedCameraBox({
                 </div>
               )}
 
-              {/* INSTANT REPLACEMENT BUTTON DIRECTLY BELOW OVAL CLICKER */}
+              {/* Action button directly below oval clicker */}
               <div className="flex flex-wrap items-center justify-center gap-3">
                 {bothValidated && frontPhoto && sidePhoto ? (
                   <button
@@ -787,7 +874,7 @@ export function CurvedCameraBox({
                 ) : liveFeedActive ? (
                   <button
                     type="button"
-                    disabled={Boolean(validatingSlot)}
+                    disabled={Boolean(validatingSlot) || (activeSlot === 'side' && !frontPhoto)}
                     onClick={captureFrameFromVideo}
                     className="tactile-cta inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1] disabled:opacity-50"
                   >
@@ -809,7 +896,7 @@ export function CurvedCameraBox({
                   </button>
                 ) : (
                   <label
-                    htmlFor={activeNativeInputId}
+                    htmlFor={ovalCameraInputId}
                     className="tactile-cta cursor-pointer inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium text-[#f3f3f1]"
                   >
                     {validatingSlot ? (
@@ -837,237 +924,48 @@ export function CurvedCameraBox({
                 </p>
               )}
             </div>
+          </div>
+        )}
 
-            {/* TWO SIDE-BY-SIDE SLOTS (ALWAYS SIDE BY SIDE) */}
-            <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
-              {/* FRONT PROFILE SLOT */}
-              <div
-                className={`flex flex-col justify-between rounded-[20px] sm:rounded-[24px] border p-3 sm:p-5 transition-colors ${
-                  activeSlot === 'front'
-                    ? 'border-[#0a0a0a] bg-[#f1f1ee]'
-                    : 'border-[#0a0a0a]/15 bg-[#dadad7]/55'
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  <div>
-                    <span className="text-[10px] sm:text-[11px] font-bold tracking-[0.1em] text-[#0a0a0a] uppercase">
-                      FRONT PROFILE
-                    </span>
-                    <p className="text-[10px] sm:text-[11px] text-[#3f3f3c]">
-                      Eye-level straight gaze
-                    </p>
-                  </div>
-                  {frontPhoto ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[9px] sm:text-[10px] font-semibold text-white">
-                      <Check className="h-2.5 w-2.5" />
-                      <span>OK</span>
-                    </span>
-                  ) : validatingSlot === 'front' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                  ) : null}
-                </div>
-
-                <div className="my-2.5 flex aspect-[4/5] w-full items-center justify-center overflow-hidden rounded-xl sm:rounded-2xl border border-[#0a0a0a]/15 bg-[#141414]">
-                  {frontPhoto ? (
-                    <img
-                      src={frontPhoto.dataUrl}
-                      alt="Validated front profile"
-                      className="h-full w-full object-cover object-top"
-                    />
-                  ) : (
-                    <span className="px-2 text-center text-[10px] sm:text-xs text-white/65">
-                      Front portrait
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-2">
-                  <label
-                    htmlFor={frontCameraId}
-                    onClick={() => setActiveSlot('front')}
-                    className="tactile-cta cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium text-[#f3f3f1] whitespace-nowrap"
-                  >
-                    <Camera className="h-3 w-3 shrink-0" />
-                    <span>{frontPhoto ? 'Retake' : 'Selfie'}</span>
-                  </label>
-                  <label
-                    htmlFor={frontUploadId}
-                    onClick={() => setActiveSlot('front')}
-                    className="cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[#0a0a0a]/25 bg-white px-3 py-2 text-[11px] font-medium text-[#0a0a0a] hover:bg-[#f5f5f2] whitespace-nowrap"
-                  >
-                    <Upload className="h-3 w-3 shrink-0" />
-                    <span>Upload</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* SIDE PROFILE SLOT */}
-              <div
-                className={`flex flex-col justify-between rounded-[20px] sm:rounded-[24px] border p-3 sm:p-5 transition-colors ${
-                  activeSlot === 'side'
-                    ? 'border-[#0a0a0a] bg-[#f1f1ee]'
-                    : 'border-[#0a0a0a]/15 bg-[#dadad7]/55'
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  <div>
-                    <span className="text-[10px] sm:text-[11px] font-bold tracking-[0.1em] text-[#0a0a0a] uppercase">
-                      SIDE PROFILE
-                    </span>
-                    <p className="text-[10px] sm:text-[11px] text-[#3f3f3c]">
-                      90° jaw &amp; neck view
-                    </p>
-                  </div>
-                  {sidePhoto ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[9px] sm:text-[10px] font-semibold text-white">
-                      <Check className="h-2.5 w-2.5" />
-                      <span>OK</span>
-                    </span>
-                  ) : validatingSlot === 'side' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                  ) : null}
-                </div>
-
-                <div className="my-2.5 flex aspect-[4/5] w-full items-center justify-center overflow-hidden rounded-xl sm:rounded-2xl border border-[#0a0a0a]/15 bg-[#141414]">
-                  {sidePhoto ? (
-                    <img
-                      src={sidePhoto.dataUrl}
-                      alt="Validated side profile"
-                      className="h-full w-full object-cover object-top"
-                    />
-                  ) : (
-                    <span className="px-2 text-center text-[10px] sm:text-xs text-white/65">
-                      90° side profile
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-2">
-                  <label
-                    htmlFor={sideCameraId}
-                    onClick={() => setActiveSlot('side')}
-                    className="tactile-cta cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium text-[#f3f3f1] whitespace-nowrap"
-                  >
-                    <Camera className="h-3 w-3 shrink-0" />
-                    <span>{sidePhoto ? 'Retake' : 'Selfie'}</span>
-                  </label>
-                  <label
-                    htmlFor={sideUploadId}
-                    onClick={() => setActiveSlot('side')}
-                    className="cursor-pointer inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[#0a0a0a]/25 bg-white px-3 py-2 text-[11px] font-medium text-[#0a0a0a] hover:bg-[#f5f5f2] whitespace-nowrap"
-                  >
-                    <Upload className="h-3 w-3 shrink-0" />
-                    <span>Upload</span>
-                  </label>
-                </div>
-              </div>
+        {/* 4. ANALYZING STATE */}
+        {mode === 'analyzing' && (
+          <div className="flex min-h-[380px] flex-col items-center justify-center gap-6 text-center">
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-[#0a0a0a]/20 bg-white/70">
+              <Loader2 className="h-8 w-8 animate-spin text-[#0a0a0a]" />
             </div>
-
-            <div className="flex flex-col items-center gap-2.5 pt-1">
-              <button
-                type="button"
-                disabled={!bothValidated}
-                onClick={() => {
-                  if (frontPhoto && sidePhoto) {
-                    void runAnalysis(frontPhoto, sidePhoto);
-                  }
-                }}
-                className="tactile-cta inline-flex items-center gap-2.5 rounded-full px-7 py-3 text-sm font-semibold text-[#f3f3f1] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <span>
-                  {bothValidated
-                    ? 'Get ratings'
-                    : 'UPLOAD & VALIDATE BOTH PROFILES'}
-                </span>
-                <ArrowUpRight className="h-4 w-4" />
-              </button>
-
-              {!liveFeedActive && (
-                <button
-                  type="button"
-                  onClick={() => void openCamera(activeSlot, true)}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-[#3f3f3c] hover:text-[#0a0a0a] underline underline-offset-4"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Retry Live Camera</span>
-                </button>
-              )}
+            <div className="space-y-2 max-w-md">
+              <p className="pomelli-display text-3xl sm:text-4xl text-[#0a0a0a]">
+                Analyzing facial geometry
+              </p>
+              <p className="text-xs sm:text-sm text-[#3f3f3c]">
+                Measuring facial thirds, jawline contour, landmark coordinates, and generating your personalized protocol.
+              </p>
             </div>
           </div>
         )}
 
-        {/* CLEAN SIDE-BY-SIDE ANALYZING VIEW (NO MOVING SCAN LINES) */}
-        {mode === 'analyzing' && frontPhoto && sidePhoto && (
-          <div className="flex flex-col items-center justify-center gap-5 py-4 text-center">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0a0a0a]/15 bg-[#dadad7] px-3.5 py-1.5 text-xs font-medium text-[#0a0a0a]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0a0a0a]" />
-                <span>ANALYZING FACIAL STRUCTURE &amp; RATINGS</span>
-              </div>
-
-              <h2 className="pomelli-display text-2xl sm:text-4xl text-[#0a0a0a]">
-                ANALYZING YOUR FACIAL GEOMETRY
-              </h2>
-            </div>
-
-            <div className="grid w-full max-w-3xl grid-cols-2 gap-2.5 sm:gap-5 items-start">
-              <FrontMeasurementOverlay
-                photo={frontPhoto}
-                landmarks={null}
-                showLines={false}
-                darkTheme={false}
-              />
-              <SideMeasurementOverlay
-                photo={sidePhoto}
-                landmarks={null}
-                showLines={false}
-                darkTheme={false}
-              />
-            </div>
-
-            <p className="text-xs font-medium text-[#3f3f3c]">
-              Detecting landmarks and computing your PSL breakdown...
-            </p>
-          </div>
-        )}
-
-        {/* ERROR STATE */}
+        {/* 5. ERROR STATE */}
         {mode === 'error' && (
-          <div className="flex min-h-[320px] flex-col items-center justify-center gap-5 py-6 text-center">
-            <p className="pomelli-display text-3xl sm:text-4xl text-[#0a0a0a]">
-              Scan interrupted
-            </p>
-            <p className="max-w-md text-sm leading-relaxed text-[#3f3f3c]">
-              {errorMessage}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {frontPhoto && sidePhoto && (
-                <button
-                  type="button"
-                  onClick={() => void runAnalysis(frontPhoto, sidePhoto)}
-                  className="tactile-cta inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-[#f3f3f1] whitespace-nowrap"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  <span>Retry Analysis</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => void openCamera('front', true)}
-                className="rounded-full border border-[#0a0a0a]/20 bg-[#dadad7] px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#cfcfcc] whitespace-nowrap"
-              >
-                Re-upload Photos
-              </button>
-
-              <button
-                type="button"
-                onClick={handleReset}
-                className="rounded-full border border-[#0a0a0a]/20 px-4 py-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#dadad7]"
-              >
-                Back
-              </button>
+          <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-700">
+              <AlertCircle className="h-7 w-7" />
             </div>
+            <div className="max-w-md space-y-1">
+              <p className="pomelli-display text-2xl text-[#0a0a0a]">
+                Scan interrupted
+              </p>
+              <p className="text-xs text-[#3f3f3c]">
+                {errorMessage || 'Unable to complete scan. Please try again with clear lighting.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#141414] px-5 py-2.5 text-xs font-semibold text-[#f3f3f1]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Retry from start</span>
+            </button>
           </div>
         )}
       </div>

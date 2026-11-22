@@ -170,15 +170,11 @@ export default function HomePage() {
     setCameraTriggerCount((c) => c + 1);
   }, []);
 
-  // Section 12: Hero DASHBOARD button Cases A, B, C, D
+  // Direct dashboard entry: immediately open dashboard for both existing and new users
   const handleDashboardClick = useCallback(() => {
-    if (session) {
-      setActiveView('dashboard');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    setAuthModalOpen(true);
-  }, [session]);
+    setActiveView('dashboard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const handleAuthenticated = useCallback(
     async (newSession: AuthSession) => {
@@ -403,6 +399,9 @@ export default function HomePage() {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onDailyProgressSaved={(entries) => setDailyProgress(entries)}
+            onAnalysisComplete={(front, side, result) =>
+              void handleAnalysisComplete(front, side, result)
+            }
           />
         )}
 

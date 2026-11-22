@@ -14,7 +14,6 @@ import {
   History,
   LayoutList,
   MessageSquare,
-  Plus,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -28,8 +27,11 @@ import {
   AppView,
   DailyProgressEntry,
   FacialAnalysisRecord,
+  PSLAnalysisResult,
+  StoredPhoto,
   UserProfile,
 } from '@/lib/types';
+import { CurvedCameraBox } from '@/components/CurvedCameraBox';
 import {
   FrontMeasurementOverlay,
   SideMeasurementOverlay,
@@ -46,6 +48,11 @@ interface DashboardHomeViewProps {
   onUpdateSelfie: () => void;
   onNavigate: (view: AppView) => void;
   onDailyProgressSaved: (entries: DailyProgressEntry[]) => void;
+  onAnalysisComplete?: (
+    frontPhoto: StoredPhoto,
+    sidePhoto: StoredPhoto,
+    result: PSLAnalysisResult,
+  ) => void;
 }
 
 function getTodayDateString(): string {
@@ -96,11 +103,14 @@ export function DashboardHomeView({
   onUpdateSelfie,
   onNavigate,
   onDailyProgressSaved,
+  onAnalysisComplete,
 }: DashboardHomeViewProps) {
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const historySectionRef = useRef<HTMLDivElement | null>(null);
+  const ratingsSectionRef = useRef<HTMLElement | null>(null);
 
   const [showOverlayLines, setShowOverlayLines] = useState(true);
+  const [cameraTriggerCount, setCameraTriggerCount] = useState(0);
 
   const latestRecord = analyses.length > 0 ? analyses[analyses.length - 1] : null;
   const activeRecord = selectedRecord ?? latestRecord;
@@ -177,6 +187,25 @@ export function DashboardHomeView({
     const el = carouselRef.current;
     if (!el) return;
     el.scrollBy({ left: dir * 280, behavior: 'smooth' });
+  };
+
+  // Click handlers for top pills:
+  // If new user (no scans), smoothly slide down to the selfie camera section so they understand they must take selfie first
+  const handleTopUpdateSelfieClick = () => {
+    if (!activeRecord) {
+      ratingsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setCameraTriggerCount((c) => c + 1);
+      return;
+    }
+    onUpdateSelfie();
+  };
+
+  const handleTopCheckRatingsClick = () => {
+    if (!activeRecord) {
+      ratingsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    onOpenResults();
   };
 
   const firstScan = analyses.length > 0 ? analyses[0] : null;
@@ -258,7 +287,7 @@ export function DashboardHomeView({
       subtitle: 'Upload a fresh scan and track structural consistency',
       tag: 'PROGRESS',
       icon: Camera,
-      onClick: onUpdateSelfie,
+      onClick: handleTopUpdateSelfieClick,
     },
     {
       title: 'Community Rankings',
@@ -300,7 +329,7 @@ export function DashboardHomeView({
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-10 text-left"
     >
-      {/* HERO GREETING + TWO PILLS + SLIM WIDE CHATBOT CTA */}
+      {/* HERO GREETING + TWO PILLS (WHITE OUTLINE CAM & WHITE ARROW) + CHATBOT CTA WITH BLINKING CURSOR */}
       <section className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -312,7 +341,7 @@ export function DashboardHomeView({
             <p className="mt-1.5 text-xs text-[#9e9ea6]">
               {latestRecord
                 ? `${latestRecord.result.faceShape} · ${latestRecord.result.pslTier}`
-                : 'Complete your first facial scan to populate your dashboard metrics.'}
+                : 'Take your front & side selfies below to unlock your facial ratings and metrics.'}
             </p>
           </div>
 
@@ -328,27 +357,30 @@ export function DashboardHomeView({
           </button>
         </div>
 
-        {/* Two Action Pill Buttons */}
+        {/* Two Action Pill Buttons: White Outline Camera + White Arrow */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={onUpdateSelfie}
-            className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-transparent px-4 py-2 text-xs font-medium text-[#e4e4e7] hover:border-white/40 transition-colors"
+            onClick={handleTopUpdateSelfieClick}
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-transparent px-4 py-2 text-xs font-medium text-[#e4e4e7] hover:border-white/45 transition-colors"
           >
-            <Plus className="h-3.5 w-3.5 text-[#a1a1aa]" />
+            {/* White outline camera empty inside */}
+            <Camera className="h-3.5 w-3.5 text-white stroke-[1.8]" />
             <span>Update your selfie</span>
           </button>
+
           <button
             type="button"
-            onClick={onOpenResults}
-            className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-transparent px-4 py-2 text-xs font-medium text-[#e4e4e7] hover:border-white/40 transition-colors"
+            onClick={handleTopCheckRatingsClick}
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-transparent px-4 py-2 text-xs font-medium text-[#e4e4e7] hover:border-white/45 transition-colors"
           >
-            <Plus className="h-3.5 w-3.5 text-[#a1a1aa]" />
+            {/* White arrow */}
+            <ArrowRight className="h-3.5 w-3.5 text-white stroke-[2]" />
             <span>See your current ratings</span>
           </button>
         </div>
 
-        {/* Slim, Wide, Curved-Edge Transparent Chatbot CTA Box */}
+        {/* Slim, Wide, Curved-Edge Transparent Chatbot CTA Box with Blinking Cursor "|" right after AI */}
         <button
           type="button"
           onClick={() => onNavigate('chatbot')}
@@ -360,6 +392,9 @@ export function DashboardHomeView({
               Dark Triad
             </span>{' '}
             AI
+            <span className="inline-block ml-1 font-mono font-light text-white animate-pulse">
+              |
+            </span>
           </span>
           <ArrowUpRight className="h-4 w-4 shrink-0 text-[#a1a1aa] transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-white" />
         </button>
@@ -426,8 +461,8 @@ export function DashboardHomeView({
         </div>
       </section>
 
-      {/* SECTION 1: CORE METRICS & SIDE-BY-SIDE PORTRAITS */}
-      <section className="border-t border-white/12 pt-8">
+      {/* SECTION 1: CORE METRICS OR NEW USER OVAL CAMERA SCANNER */}
+      <section ref={ratingsSectionRef} className="border-t border-white/12 pt-8">
         {activeRecord ? (
           <div className="space-y-8">
             <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
@@ -580,22 +615,31 @@ export function DashboardHomeView({
             </ol>
           </div>
         ) : (
-          <div className="space-y-3">
-            <h2 className="text-xl font-medium text-[#f4f4f5]">
-              No Facial Scan Recorded Yet
-            </h2>
-            <p className="max-w-md text-sm text-[#9e9ea6]">
-              Submit your front and side profile photographs to populate your PSL rating,
-              feature comparisons, and personalized improvement plan.
-            </p>
-            <button
-              type="button"
-              onClick={onUpdateSelfie}
-              className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#f4f4f5] px-6 py-3 text-xs font-semibold text-[#0a0a0a]"
-            >
-              <Camera className="h-4 w-4" />
-              <span>Start Scan</span>
-            </button>
+          /* NEW USER FLOW: Ask for selfies & display exact oval camera directly inside dashboard! */
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <span className="text-[11px] font-semibold tracking-[0.14em] text-[#a1a1aa] uppercase">
+                FIRST STEP · INITIAL SCAN REQUIRED
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-[#f4f4f5]">
+                Take your selfies to calculate your facial ratings
+              </h2>
+              <p className="max-w-2xl text-sm leading-relaxed text-[#9e9ea6]">
+                You have not completed a facial scan yet. Use the oval camera or upload straight front and 90° side profile photographs below. Your ratings, symmetry scores, and custom improvement plan will generate automatically.
+              </p>
+            </div>
+
+            <div className="rounded-[32px] overflow-hidden border border-white/14">
+              <CurvedCameraBox
+                externalTriggerCount={cameraTriggerCount}
+                profile={profile}
+                onAnalysisComplete={(front, side, result) => {
+                  if (onAnalysisComplete) {
+                    onAnalysisComplete(front, side, result);
+                  }
+                }}
+              />
+            </div>
           </div>
         )}
       </section>

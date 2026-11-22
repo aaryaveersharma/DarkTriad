@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
+import Markdown from 'react-markdown';
 import { DataService, saveLightweightPreferences } from '@/lib/storage/dataService';
 import {
   ChatMessage,
@@ -29,13 +30,14 @@ interface ChatbotViewProps {
   onConsumedLaunchTrigger?: () => void;
 }
 
-const MODES: Array<{ key: ChatMode; label: string; description: string }> = [
-  { key: 'GENERAL', label: 'GENERAL', description: 'All scans, ratios & goals' },
-  { key: 'FEEDBACK', label: 'FEEDBACK', description: 'Structure, ratios & harmony' },
-  { key: 'SKINCARE', label: 'SKINCARE', description: 'Concerns, actives & routine' },
-  { key: 'DIET', label: 'DIET', description: 'Macros & bloat balance' },
-  { key: 'EXERCISES', label: 'EXERCISES', description: 'Training, cardio & posture' },
-  { key: 'HAIRSTYLE', label: 'HAIRSTYLE', description: 'Cut framing & styling' },
+// Modes in exact specified order: GENERAL, SKINCARE, DIET, EXERCISES, FEEDBACK, HAIRSTYLE
+const MODES: ChatMode[] = [
+  'GENERAL',
+  'SKINCARE',
+  'DIET',
+  'EXERCISES',
+  'FEEDBACK',
+  'HAIRSTYLE',
 ];
 
 const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
@@ -45,11 +47,6 @@ const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
     'How many miles should I run?',
     'How can I improve my jawline?',
     'Which skincare products should I use?',
-  ],
-  FEEDBACK: [
-    'What are my strongest facial features?',
-    'Explain my weakest facial characteristics.',
-    'How can I improve my overall facial appearance?',
   ],
   SKINCARE: [
     'Build my morning skincare routine.',
@@ -65,6 +62,11 @@ const QUICK_SUGGESTIONS: Record<ChatMode, string[]> = {
     'Create my weekly workout routine.',
     'How much cardio should I do?',
     'How can I improve my overall fitness?',
+  ],
+  FEEDBACK: [
+    'What are my strongest facial features?',
+    'Explain my weakest facial characteristics.',
+    'How can I improve my overall facial appearance?',
   ],
   HAIRSTYLE: [
     'Which hairstyle suits my face the best?',
@@ -101,39 +103,6 @@ function writeStartedMode(ownerId: string, mode: ChatMode) {
   } catch {
     // Ignore storage quota errors
   }
-}
-
-function renderFormattedText(text: string) {
-  const lines = text.split('\n');
-  return (
-    <div className="space-y-1.5 text-sm leading-relaxed">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-1" />;
-
-        const segments = line.split(/(\*\*[^*]+\*\*)/g).map((seg, sIdx) => {
-          if (seg.startsWith('**') && seg.endsWith('**')) {
-            return (
-              <strong key={sIdx} className="font-semibold text-white">
-                {seg.slice(2, -2)}
-              </strong>
-            );
-          }
-          return <span key={sIdx}>{seg}</span>;
-        });
-
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          return (
-            <p key={idx} className="pl-3 relative">
-              <span className="absolute left-0 text-[#9e9ea6]">•</span>
-              {segments}
-            </p>
-          );
-        }
-        return <p key={idx}>{segments}</p>;
-      })}
-    </div>
-  );
 }
 
 function compressAttachment(file: File): Promise<string> {
@@ -188,12 +157,10 @@ export function ChatbotView({
   const fileInputId = useId();
   const launchConsumedRef = useRef(false);
 
-  // Sync startedModes map when ownerId changes
   useEffect(() => {
     setStartedModes(readStartedModes(ownerId));
   }, [ownerId]);
 
-  // Load persisted conversation history whenever ownerId or mode changes
   useEffect(() => {
     let cancelled = false;
     setErrorMsg('');
@@ -260,7 +227,6 @@ export function ChatbotView({
     const targetMode = customMode ?? mode;
     if (targetMode !== mode) setMode(targetMode);
 
-    // Hide quick actions permanently for this mode once a message is sent
     writeStartedMode(ownerId, targetMode);
     setStartedModes((prev) => ({ ...prev, [targetMode]: true }));
     setModeMenuOpen(false);
@@ -368,31 +334,19 @@ export function ChatbotView({
   const showQuickSuggestions = !startedModes[mode] && messages.length === 0;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="flex flex-col min-h-[76vh] text-left"
-    >
-      {/* Top Heading Only — Open Left-Aligned Layout */}
-      <header className="pb-4 border-b border-white/10">
-        <h1 className="text-xl sm:text-2xl font-medium tracking-tight text-[#f4f4f5]">
-          DARK TRIAD AI
-        </h1>
-      </header>
-
-      {/* Open Conversation Area (Completely Empty Before First Message) */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-5">
+    <div className="flex flex-col h-[calc(100dvh-7.5rem)] max-h-[880px] w-full text-left">
+      {/* Region 1: Independently scrollable conversation area */}
+      <div className="flex-1 overflow-y-auto px-1 py-2 space-y-4 min-h-0">
         {messages.map((msg) => (
           <div
             key={msg.id}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[90%] sm:max-w-[78%] text-sm ${
+              className={`max-w-[92%] sm:max-w-[80%] text-sm ${
                 msg.role === 'user'
                   ? 'rounded-2xl border border-white/18 bg-[#222227] px-4 py-3 text-[#f4f4f5]'
-                  : 'border-l border-white/18 pl-4 py-1 text-[#e4e4e7]'
+                  : 'border-l-2 border-white/20 pl-4 py-1 text-[#e4e4e7]'
               }`}
             >
               {msg.imageDataUrl && (
@@ -402,14 +356,52 @@ export function ChatbotView({
                   className="mb-3 max-h-80 w-auto rounded-xl border border-white/15 object-cover"
                 />
               )}
-              {renderFormattedText(msg.text)}
+
+              {msg.role === 'user' ? (
+                <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+              ) : (
+                <div className="space-y-1.5 text-sm leading-relaxed text-[#e4e4e7]">
+                  <Markdown
+                    components={{
+                      h1: ({ children }) => (
+                        <h3 className="text-base font-semibold text-[#f4f4f5] mt-2.5 mb-1 first:mt-0">
+                          {children}
+                        </h3>
+                      ),
+                      h2: ({ children }) => (
+                        <h4 className="text-sm font-semibold text-[#f4f4f5] mt-2 mb-1 first:mt-0">
+                          {children}
+                        </h4>
+                      ),
+                      h3: ({ children }) => (
+                        <h5 className="text-sm font-semibold text-[#f4f4f5] mt-2 mb-1 first:mt-0">
+                          {children}
+                        </h5>
+                      ),
+                      p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-white">{children}</strong>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="my-1.5 space-y-1 pl-4 list-disc text-[#d4d4d8]">{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="my-1.5 space-y-1 pl-4 list-decimal text-[#d4d4d8]">{children}</ol>
+                      ),
+                      li: ({ children }) => <li className="pl-0.5 leading-relaxed">{children}</li>,
+                    }}
+                  >
+                    {msg.text}
+                  </Markdown>
+                </div>
+              )}
             </div>
           </div>
         ))}
 
         {loading && (
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa]">
+            <div className="inline-flex items-center gap-2.5 text-xs text-[#a1a1aa] py-1">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>Thinking in {mode} mode...</span>
             </div>
@@ -425,16 +417,16 @@ export function ChatbotView({
         <div ref={bottomRef} />
       </div>
 
-      {/* Mode-Specific Quick Suggestions — Hidden Permanently Once Mode Has Any Message */}
+      {/* Region 2: Fixed quick-action area immediately above composer (shown ONLY before first user message in current mode) */}
       {showQuickSuggestions && (
-        <div className="pb-4 flex flex-wrap gap-2">
+        <div className="shrink-0 pt-2 pb-2.5 flex flex-wrap gap-2">
           {suggestions.map((q) => (
             <button
               key={q}
               type="button"
               disabled={loading}
               onClick={() => void sendMessage(q)}
-              className="rounded-full border border-white/15 bg-transparent px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
+              className="rounded-full border border-white/18 bg-white/[0.04] px-3.5 py-1.5 text-left text-xs text-[#d4d4d8] hover:border-white/35 hover:text-white transition-colors disabled:opacity-50"
             >
               {q}
             </button>
@@ -442,13 +434,13 @@ export function ChatbotView({
         </div>
       )}
 
-      {/* Open Composer Footer */}
+      {/* Region 3: Fixed composer at the bottom */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void sendMessage(input);
         }}
-        className="relative border-t border-white/12 pt-4"
+        className="shrink-0 relative border-t border-white/12 pt-3 pb-1"
       >
         <input
           id={fileInputId}
@@ -459,68 +451,25 @@ export function ChatbotView({
         />
 
         {attachment && (
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-2.5 flex items-center gap-2">
             <div className="relative inline-block">
               <img
                 src={attachment}
                 alt="Attachment preview"
-                className="h-14 w-14 rounded-xl border border-white/20 object-cover"
+                className="h-12 w-12 rounded-xl border border-white/20 object-cover"
               />
               <button
                 type="button"
                 onClick={() => setAttachment(null)}
                 aria-label="Remove attachment"
-                className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#0a0a0a] border border-white/30 text-white"
+                className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0a0a0a] border border-white/30 text-white"
               >
-                <X className="h-3 w-3" />
+                <X className="h-2.5 w-2.5" />
               </button>
             </div>
             <span className="text-xs text-[#9e9ea6]">Photo attached</span>
           </div>
         )}
-
-        {/* Proportionate Balanced Grid of All 6 Modes When SWITCH MODE Is Clicked */}
-        <AnimatePresence>
-          {modeMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="mb-3 grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-2xl border border-white/15 bg-[#19191d] p-2.5"
-            >
-              {MODES.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => {
-                    setMode(m.key);
-                    setModeMenuOpen(false);
-                  }}
-                  className={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-colors ${
-                    mode === m.key
-                      ? 'border-[#f4f4f5] bg-[#f4f4f5] text-[#0a0a0a]'
-                      : 'border-white/10 bg-[#141417] text-[#e4e4e7] hover:border-white/28'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="text-xs font-semibold tracking-[0.04em]">
-                      {m.label}
-                    </span>
-                    {mode === m.key && <Check className="h-3.5 w-3.5 shrink-0" />}
-                  </div>
-                  <span
-                    className={`mt-1 block text-[10px] leading-snug ${
-                      mode === m.key ? 'text-[#0a0a0a]/75' : 'text-[#8e8e95]'
-                    }`}
-                  >
-                    {m.description}
-                  </span>
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         <div className="rounded-2xl border border-white/18 bg-transparent p-3 focus-within:border-white/35 transition-colors">
           <textarea
@@ -537,7 +486,7 @@ export function ChatbotView({
             className="w-full resize-none bg-transparent px-1 text-sm text-[#f4f4f5] placeholder:text-[#7c7c85] focus:outline-none"
           />
 
-          <div className="mt-2 flex items-center justify-between gap-2 pt-1.5">
+          <div className="mt-2 flex items-center justify-between gap-2 pt-1">
             <label
               htmlFor={fileInputId}
               title="Attach image for analysis or question"
@@ -547,18 +496,54 @@ export function ChatbotView({
             </label>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setModeMenuOpen((o) => !o)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-transparent px-3.5 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:border-white/38 transition-colors"
-              >
-                <span>SWITCH MODE · {mode}</span>
-                <ChevronDown
-                  className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
-                    modeMenuOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
+              {/* Compact Switch Mode selector: Anchored dropdown opening UPWARD */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setModeMenuOpen((o) => !o)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-transparent px-3 py-1.5 text-[11px] font-medium text-[#e4e4e7] hover:border-white/38 transition-colors"
+                >
+                  <span>SWITCH MODE · {mode}</span>
+                  <ChevronDown
+                    className={`h-3 w-3 text-[#a1a1aa] transition-transform ${
+                      modeMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                <AnimatePresence>
+                  {modeMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 4 }}
+                      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                      className="absolute bottom-full right-0 mb-2 z-50 w-44 overflow-hidden rounded-xl border border-white/20 bg-[#161619] p-1 shadow-2xl backdrop-blur-md"
+                    >
+                      <div className="flex flex-col divide-y divide-white/6">
+                        {MODES.map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setMode(m);
+                              setModeMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium transition-colors ${
+                              mode === m
+                                ? 'bg-white text-black font-semibold'
+                                : 'text-[#d4d4d8] hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span>{m}</span>
+                            {mode === m && <Check className="h-3.5 w-3.5 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               <button
                 type="submit"
@@ -572,6 +557,6 @@ export function ChatbotView({
           </div>
         </div>
       </form>
-    </motion.div>
+    </div>
   );
 }

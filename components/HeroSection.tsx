@@ -193,17 +193,17 @@ export function HeroSection({
         </div>
       </motion.div>
 
-      {/* Primary CTA Button + Secondary DASHBOARD Button */}
+      {/* Matching Pair: "Get your ratings" + "Dashboard" with identical design language */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        className="mt-7 flex flex-col items-center gap-3"
+        className="mt-7 flex flex-wrap items-center justify-center gap-3 sm:gap-4"
       >
         <button
           type="button"
           onClick={onGetRatingsClick}
-          className="tactile-cta group inline-flex items-center gap-3.5 rounded-full py-2.5 pl-3 pr-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
+          className="tactile-cta group inline-flex items-center gap-3.5 rounded-full py-2.5 pl-3.5 pr-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
         >
           <FaceAvatarsCluster count={3} size="md" ringColor="ring-[#141414]" />
           <span className="text-sm sm:text-base font-medium tracking-tight text-[#f3f3f1] whitespace-nowrap">
@@ -217,10 +217,17 @@ export function HeroSection({
         <button
           type="button"
           onClick={onDashboardClick}
-          className="inline-flex items-center gap-2 rounded-xl border border-[#0a0a0a] bg-white px-5 py-2 text-xs font-semibold tracking-[0.08em] text-[#0a0a0a] shadow-sm transition-colors hover:bg-[#f3f3f1] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
+          className="tactile-cta group inline-flex items-center gap-3.5 rounded-full py-2.5 pl-4 pr-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0a0a0a]"
         >
-          <LayoutDashboard className="h-3.5 w-3.5" />
-          <span>DASHBOARD</span>
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/12 text-[#f3f3f1]">
+            <LayoutDashboard className="h-3.5 w-3.5" />
+          </span>
+          <span className="text-sm sm:text-base font-medium tracking-tight text-[#f3f3f1] whitespace-nowrap">
+            Dashboard
+          </span>
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/12 text-[#f3f3f1] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+            <ArrowUpRight className="h-4 w-4" />
+          </span>
         </button>
       </motion.div>
     </section>
