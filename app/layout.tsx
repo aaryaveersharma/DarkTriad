@@ -79,6 +79,9 @@ export const metadata: Metadata = {
     title: SEO_TITLE,
     description: SEO_DESCRIPTION,
   },
+  other: {
+    'google-adsense-account': 'ca-pub-2973170753104081',
+  },
 };
 
 const STRUCTURED_DATA = {
